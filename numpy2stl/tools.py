@@ -45,54 +45,48 @@ def get_surfaces(vertices, normals=None):
 
         same_normal = normals_idx == n_idx   
         idx_list = np.nonzero(normals_idx == n_idx)[0]
-        idx = idx_list[0]
-        if len(idx_list)==1:
-            surfaces.append([idx])
-            continue
 
-        surf, to_do = [],[]
-        surf.append(idx) 
+        if len(idx_list)==1:
+            surfaces.append(idx_list)
+            continue
         
         sub_vert = tri_vertices_idx[same_normal]  
-        tri = tri_vertices_idx[idx]
+        sub_idx = 0
+        tri = sub_vert[sub_idx]
         b_checked = np.zeros(sub_vert.shape[0],dtype=bool)  
-        b_checked[0] = True
+        b_checked[sub_idx] = True
+
+        idx = idx_list[0]
+
+        surf, queue = [],[]
+        surf.append(idx) 
         
+        #same_verts = (sub_vert[:,:,None,None] == sub_vert).any(axis=1)
         while (b_checked==False).any():      
-                    
-            same_edges = (sub_vert==tri[0])|(sub_vert==tri[1])|(sub_vert==tri[2])
-            shared_edges= np.sum(same_edges,axis=1)==2
+            #shared_edges= np.sum( same_verts[sub_idx]  ,axis=1)==2        
+            same_verts = (sub_vert==tri[0])|(sub_vert==tri[1])|(sub_vert==tri[2])
+            shared_edges = np.sum( same_verts ,axis=1)==2
             shared_edges = shared_edges & (b_checked==False)
 
-            # shared_edges = b_checked==False
-            # same_edges = (sub_vert[shared_edges] == tri[:,None,None]).any(axis=0)
-            # any_edge = same_edges.any(axis=1)
-            # any_edge[any_edge] = np.sum(same_edges[any_edge],axis=1)==2
-            # shared_edges[shared_edges] = any_edge
-            
             #Continue treversing touching vertices or in queue
-            if (shared_edges).any() or (len(to_do)>0):
+            if (shared_edges).any() or (len(queue)>0):
 
                 sub_idxs = np.where(shared_edges)[0]         
-                to_do.extend(sub_idxs)
+                queue.extend(sub_idxs)
                 b_checked[sub_idxs] = True 
-                
                 surf.extend(idx_list[sub_idxs])                
-                
-                next_idx = to_do.pop()
-                tri = sub_vert[next_idx]
+                sub_idx = queue.pop()
+                tri = sub_vert[sub_idx]
                 
             #If queue is empty start a new Surface on same normal plane   
             else:
-
                 surfaces.append(np.unique(surf))
                 surf = []
-
                 sub_idx = np.where(b_checked==False)[0][0]  
                 surf.append( idx_list[sub_idx] )
                 tri  = sub_vert[ sub_idx  ]
                 b_checked[sub_idx] = True 
-
+                
         surfaces.append(np.unique(surf))
                 
     return surfaces
@@ -106,17 +100,12 @@ def simplify_object_3D(vertices):
     required_vertices = get_required_vertices(vertices,surfaces,normals)
 
     vertices_out = []
-    n = 0
     for surf in surfaces:
-
-        print(n)
-        n = n+1
         norm = normals[surf][0]
         surface_vertices = vertices[surf]   
 
         if len(surface_vertices)>4:
             surface_vertices = simplify_surface(surface_vertices,norm, keep_vertices=required_vertices) 
-
         vertices_out.append( surface_vertices )  
 
     vertices_out = np.concatenate(vertices_out)
@@ -125,6 +114,34 @@ def simplify_object_3D(vertices):
     print( len(vertices), " vertices reduced to " , len(vertices_out))
             
     return vertices_out
+
+def simplify_surface(vertices, normal, keep_vertices=None):
+    """
+    """
+    ## Get ordered perimeter points 
+    edges = get_open_edges(vertices)
+    perimeters = get_ordered_perimeter(edges)
+
+    if keep_vertices is not None:
+        
+        perimeters = [peri[(peri[:,None] == keep_vertices).all(axis=2).any(axis=1)] for peri in perimeters]
+
+    ## Flatten boundry to 2D
+    perimeter_2d = perimeter_to_2D( perimeters, normal, simplify_lines=False)
+    
+    peri_out = partition_to_convex(perimeter_2d)
+    tri_vert_2D = np.concatenate([triangulate_convex([p]) for p in peri_out ])
+    
+    ## Reconstruct 3D polygon from 2D triangles 
+    uni_vert_2D, idx_vert_2D = vertices_to_index( tri_vert_2D )
+    points_2d_flat = np.concatenate(perimeter_2d)
+    idx_to_boundry = np.array( [ np.nonzero(np.isclose(v, points_2d_flat).all(axis=1))[0][0] for v in uni_vert_2D ]  )
+    idx_to_boundry = idx_to_boundry[idx_vert_2D]
+    idx_to_boundry = np.reshape(idx_to_boundry, tri_vert_2D.shape[0:2])
+    all_points = np.concatenate(perimeters)
+    simplifed_vert = all_points[idx_to_boundry]
+
+    return simplifed_vert
 
 def get_required_vertices(vertices,surfaces=None,normals=None):
 
@@ -177,49 +194,22 @@ def perimeter_to_2D( perimeters, normal, simplify_lines=False):
 
     return perimeter_2d
     
-def simplify_surface(vertices,normal, keep_vertices=None):
-    """
-    """
-    ## Get ordered perimeter points 
-    edges = get_open_edges(vertices)
-    perimeters = get_ordered_perimeter(edges)
+def partition_to_convex(perimeter_2d):
 
-    if keep_vertices is not None:
-        
-        perimeters = [peri[(peri[:,None] == keep_vertices).all(axis=2).any(axis=1)] for peri in perimeters]
+    ## Triangles are already convex
+    if len(perimeter_2d[0] ) == 3:
+        return  perimeter_2d
 
-    ## Flatten boundry to 2D
-    perimeter_2d = perimeter_to_2D( perimeters, normal, simplify_lines=False)
-    points_2d_flat = np.concatenate(perimeter_2d)
-    
-    ## Simplify Triangulation
+    ## More that one perimeter implies polygon with holes
     if len(perimeter_2d)>1:
 
         peri = partition_holes(perimeter_2d)
-        peri_out = [partition_concave([p]) for p in peri ]
+        peri_out = [partition_concave([p]) for p in peri]
         peri_out = [p for peri in peri_out for p in peri]
-        print("x")
     else:   
-        if  len(perimeter_2d[0])>3:
-            peri_out = partition_concave(perimeter_2d)
-            print("y")
-        else:
-            peri_out = perimeter_2d
-            print("z")
+        peri_out = partition_concave(perimeter_2d)
 
-    print(peri_out)
-    vert_2D_tri = np.concatenate([triangulate_polygon([p]) if len(p)>3 else [p] for p in peri_out ])
-    uni_vert_2D, idx_vert_2D = vertices_to_index(vert_2D_tri)
-
-    ## Reconstruct polygon from new triangles 
-    idx_to_boundry = np.array( [ np.nonzero(np.isclose(v, points_2d_flat).all(axis=1))[0][0] for v in uni_vert_2D ]   )
-    idx_to_boundry = idx_to_boundry[idx_vert_2D]
-    idx_to_boundry = np.reshape(idx_to_boundry, vert_2D_tri.shape[0:2])
-
-    all_points = np.concatenate(perimeters)
-    simplifed_vert = all_points[idx_to_boundry]
-
-    return simplifed_vert
+    return peri_out
 
 def validate_object(vertices):
     """
@@ -268,18 +258,24 @@ def rotation_matrix_from_vertices(vec1, vec2):
 
     return rotation_matrix
 
-def triangulate_polygon(points):
+def triangulate_convex(points):
     """
     
     """
+    if len(points[0])==3:
+        return points
+
+    if len(points[0])<3:
+        return []
+
     LR_ext = LinearRing(points[0])
     polygon = Polygon(LR_ext)   
     tri_Poly = ops.triangulate(polygon)
     tri_Poly_within = [tri for tri in tri_Poly if tri.within(polygon)]
     vert =  np.array([np.array(tri.exterior.xy)[:,0:3].T for tri in tri_Poly_within]) 
+
     all_points = np.concatenate(points)
     zval = np.full((*vert.shape[0:2],1), all_points[0,2] )  
-    
     vertices_tri = np.concatenate((vert, zval ), axis =2)
     return vertices_tri
 
@@ -441,6 +437,8 @@ def find_closest_opposite(perimeter, idx):
 
     perimeter_flat = np.concatenate(perimeter)
     convex_point = perimeter_flat[idx]
+
+
     bisect = get_bisect(perimeter_flat)[idx]
     bisect = bisect / np.linalg.norm(bisect)
     
@@ -519,6 +517,3 @@ def set_orientation(perimeter, orientation=1):
         perimeter_out.append(p)
 
     return perimeter_out
-
-
-
