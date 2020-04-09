@@ -2,6 +2,7 @@
 import numpy as np
 from itertools import product
 from .tools import *
+from .solid import *
 
 
 ############################# convert array to facet list ##########################################

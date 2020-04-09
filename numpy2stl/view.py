@@ -11,11 +11,10 @@ def plot_edges_3d(edges,ax=None):
         fig = plt.figure()
         ax = plt3.Axes3D(fig)
 
-    for n,e in enumerate(edges):
+    for e in edges:
         color = np.random.rand(3)
         ax.plot3D([e[0,0],e[1,0]], [e[0,1],e[1,1]], [e[0,2],e[1,2]], color=color)
         ax.plot3D([e[1,0]], [e[1,1]], [e[1,2]], 'o', color=color)
-        #ax.text(e[1,0], e[1,1], e[1,2], str(n), [0, 0, 1])
 
     x = edges[:,:,0].ravel()
     y = edges[:,:,1].ravel()
