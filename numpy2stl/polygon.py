@@ -9,43 +9,45 @@ from shapely.geometry.polygon import LinearRing, LineString, orient
 
 from .view import *
 
-def get_ordered_perimeter(edges,validate=False):
-    """
-    """
-    edges_list = np.reshape(edges, (-1,3))
-    uni_edges, edges_idx = np.unique(edges_list, axis=0 , return_inverse=True)
-    edges_idx = np.reshape(edges_idx, (edges.shape[0],-1))
-    
-    edges_left = list(edges_idx)
-    this_idx = edges_left[0][0]
+from collections import defaultdict 
+
+def get_ordered_perimeter( vertices, edges, validate=False):
+
+    edge_graph = defaultdict(list)
+    for e in edges:
+        edge_graph[e[0]].append(e[1])
+
+    this_idx = list(edge_graph.keys())[0] 
+
     traces_all,trace = [],[]
-    
-    for _ in range(len(edges_idx)):
+    for _ in range(len(edges)):
+        
         trace.append(this_idx)  
-        next_list_idx = np.nonzero((edges_left == this_idx)[:,0])[0]
+        next_idxs = edge_graph[this_idx]
+        
+        if len(next_idxs)>1 and len(trace)>1:
+            smallest_idx = find_smaller_angle(  vertices[trace[-2]], vertices[trace[-1]], vertices[next_idxs[:,1]] )
+            next_idx = next_idxs[smallest_idx]
 
-        if len(next_list_idx)>1 and len(trace)>1:
+        elif len(next_idxs)>0:
+            next_idx = next_idxs[0] 
 
-            next_idx_options = np.array(edges_left)[next_list_idx]
-            smallest_idx = find_smaller_angle(uni_edges, trace[-2], trace[-1], next_idx_options[:,1] )
-            next_list_idx = next_list_idx[smallest_idx]
-        elif len(next_list_idx)>0:
-            next_list_idx = next_list_idx[0] 
-        else:
-            print(next_list_idx)
-            print(uni_edges[trace])
+        if next_idx in edge_graph[this_idx]:
+            edge_graph[this_idx].remove(next_idx)
+        
+        if len(edge_graph[this_idx])==0:
+            edge_graph.pop(this_idx)
 
-        next_edge = edges_left.pop(next_list_idx)  
+        this_idx = next_idx
 
-        this_idx = next_edge[1]
-            
         if this_idx in trace:
             trace.append(this_idx)
             traces_all.append(trace)
             trace = []    
-            if len(edges_left)>0:
-                this_idx = edges_left[0][0]
-        
+
+            if len(edge_graph)>0:
+                this_idx = list(edge_graph.keys())[0] 
+
     #Validate the traces to be closed perimeters
     traces_out = []
     for trace in traces_all:
@@ -54,22 +56,24 @@ def get_ordered_perimeter(edges,validate=False):
         trace = trace[0:-1]   
         if len(trace)<3:
             continue 
-        traces_out.append(trace)
+        traces_out.append(np.array(trace))
 
-    perimeters = [uni_edges[idx] for idx in traces_out]
+    return traces_out
 
-    return perimeters
-
-def simplify_perimeters( perimeters, normal):
+def simplify_perimeters( vertices, perimeters, normal):
 
     simplified_perimeters = []
-    for line in perimeters:
-        if len(line)>4:
+    for line_idx in perimeters:
+        
+        if len(line_idx)<4:
+            simpified_line = line_idx
+        else:
+
+            line = vertices[line_idx]
             line_2d = rotate_3D(line, normal, [0,0,1] )
             angles = get_perimeter_angles( line_2d) 
-            simpified_line = np.array(line[angles != 180])
-        else:
-            simpified_line = line
+            simpified_line = np.array(line_idx[  angles != 180  ])
+        
         simplified_perimeters.append(simpified_line)
 
     return simplified_perimeters
@@ -77,16 +81,23 @@ def simplify_perimeters( perimeters, normal):
 def perimeter_to_2D( perimeters, normal, simplify_lines=False):
     
     perimeter_2d = [rotate_3D(peri, normal, [0,0,1] ) for peri in perimeters ]
+
     if simplify_lines:
         angles = [get_perimeter_angles(line) for line in perimeter_2d]
         perimeter_2d = [np.array(line[angles[n] != 180]) for n, line in enumerate(perimeter_2d)]
 
     return perimeter_2d
-    
-def find_smaller_angle(points, last_idx, this_idx, next_idx_options ):
 
-    bc = [points[last_idx] - points[this_idx]]
-    ba = points[next_idx_options] - points[this_idx]
+def vertices_to_2D( vertices, normal):
+    
+    vertices_2d = rotate_3D(vertices, normal, [0,0,1] )
+    
+    return vertices_2d
+    
+def find_smaller_angle( last_pt, this_pt , next_pts ):
+
+    bc = [last_pt - this_pt]
+    ba = next_pts - this_pt
     ## Return dot product 
     ba = ba / np.linalg.norm(ba,axis=1)[:,None]
     bc = bc / np.linalg.norm(bc,axis=1)[:,None]
@@ -96,7 +107,6 @@ def find_smaller_angle(points, last_idx, this_idx, next_idx_options ):
     dot_prod[np.isclose(dot_prod,1)] = -1
     idx = np.argsort(dot_prod)
     return idx[-1]
-
 
 def get_angle_vectors(ba, bc ):
 
@@ -138,9 +148,6 @@ def get_perimeter_normal(perimeter):
     while (np.linalg.norm(normal) == 0) and (n < (len(perimeter))-1):
         normal = np.cross(perimeter[n+1] - perimeter[n] , perimeter[n-1] - perimeter[n])
         n = n+1
-
-    if (np.linalg.norm(normal)==0):
-        print(perimeter)
 
     normal = normal / np.linalg.norm(normal)
     
@@ -212,7 +219,8 @@ def rotation_matrix_from_vertices(vec1, vec2):
     return rotation_matrix
 
 
-def triangulate_polygon(perimeters):
+
+def triangulate_polygon(vertices_2D, perimeters):
 
     grouped_edges = perimeters_to_edges(perimeters)
 
@@ -220,7 +228,7 @@ def triangulate_polygon(perimeters):
     if len(grouped_edges)>1:
         for i in range(1,len(grouped_edges)):
 
-            verts, faces = triangulate_edges(grouped_edges[i])
+            verts, faces = triangulate_edges(vertices_2D, grouped_edges[i])
             tris = verts[faces]
             cents = tris.mean(axis=1)
             holes.append(cents[0])
@@ -228,27 +236,27 @@ def triangulate_polygon(perimeters):
         holes = None
 
     all_edges = np.concatenate(grouped_edges)
-    vertices, faces = triangulate_edges(all_edges, holes=holes)
+    vertices, faces = triangulate_edges(vertices_2D, all_edges, holes=holes)
 
     return vertices, faces
 
 
-def triangulate_edges(edges, holes=None):
+def triangulate_edges(vertices_2D, edges, holes=None):
 
-    uni_edges, edge_idx = np.unique(np.concatenate(edges), axis=0, return_inverse=True)
-    edge_idx = edge_idx.reshape((-1,2))
-
+    
     if holes is None:
-        shape = {"vertices": uni_edges[:,[0,1]], "segments": edge_idx}   
+        shape = {"vertices": vertices_2D[:,[0,1]], "segments": edges}   
     else:
-        shape = {"vertices": uni_edges[:,[0,1]], "segments": edge_idx, "holes": holes}
+        shape = {"vertices": vertices_2D[:,[0,1]], "segments": edges, "holes": holes}
     t = tr.triangulate(shape,'p')  
 
     vertices = t["vertices"]
     faces =  t['triangles'] 
 
-    vertices = vertices[edge_idx[:,0]]
-    faces = np.argsort(edge_idx[:,0])[faces]
+    sub_faces = np.unique(faces.reshape(1,-1),return_inverse=True)[1].reshape(-1,3)
+
+    vertices = vertices[edges[:,0]]
+    faces = np.argsort(edges[:,0])[sub_faces]
 
     return vertices,faces
 
@@ -305,7 +313,7 @@ def partition_holes(perimeter):
     
     edges = np.concatenate([first_edge,all_edges,last_edge ])
     
-    peri_new = get_ordered_perimeter(edges)
+    peri_new = get_ordered_perimeter(edges) ## discontinued 
     peri_new = set_orientation(peri_new, orientation=1)
 
     return peri_new
@@ -403,7 +411,9 @@ def partition_concave(perimeter):
     first_edge = np.concatenate(perimeter)[[idx1,idx2]]
     last_edge =  np.concatenate(perimeter)[[idx2,idx1]]
     edges = np.concatenate([[first_edge],edges[0],[last_edge] ])
-    peri_new = get_ordered_perimeter(edges)
+
+    peri_new = get_ordered_perimeter(edges) ## Discontinued uses idxs only now 
+
     peri_new = set_orientation(peri_new, orientation=1)
 
     peri_out = []
