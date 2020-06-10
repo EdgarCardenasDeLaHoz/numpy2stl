@@ -10,7 +10,7 @@ from shapely.geometry.polygon import LinearRing, LineString, orient
 from .view import *
 
 from collections import defaultdict 
-
+ 
 def get_ordered_perimeter( vertices, edges, validate=False):
 
     edge_graph = defaultdict(list)
@@ -77,6 +77,13 @@ def simplify_perimeters( vertices, perimeters, normal):
         simplified_perimeters.append(simpified_line)
 
     return simplified_perimeters
+
+def simplify_line(line_2d):
+
+    angles = get_perimeter_angles( line_2d) 
+    simpified_line = np.array(line_2d[  angles != 180  ])
+
+    return simpified_line
 
 def perimeter_to_2D( perimeters, normal, simplify_lines=False):
     
@@ -218,8 +225,6 @@ def rotation_matrix_from_vertices(vec1, vec2):
 
     return rotation_matrix
 
-
-
 def triangulate_polygon(vertices_2D, perimeters):
 
     grouped_edges = perimeters_to_edges(perimeters)
@@ -240,10 +245,8 @@ def triangulate_polygon(vertices_2D, perimeters):
 
     return vertices, faces
 
-
 def triangulate_edges(vertices_2D, edges, holes=None):
 
-    
     if holes is None:
         shape = {"vertices": vertices_2D[:,[0,1]], "segments": edges}   
     else:
@@ -259,212 +262,3 @@ def triangulate_edges(vertices_2D, edges, holes=None):
     faces = np.argsort(edges[:,0])[sub_faces]
 
     return vertices,faces
-
-
-### Partition Polygon
-
-def triangulate_polygon__(points):
-    """
-    
-    """
-    if len(points[0])==3:
-        return points
-
-    if len(points[0])<3:
-        return []
-
-    LR_ext = LinearRing(points[0])
-    polygon = Polygon(LR_ext)   
-    tri_Poly = ops.triangulate(polygon)
-    tri_Poly_within = [tri for tri in tri_Poly if tri.within(polygon)]
-    vert =  np.array([np.array(tri.exterior.xy)[:,0:3].T for tri in tri_Poly_within]) 
-
-    all_points = np.concatenate(points)
-    zval = np.full((*vert.shape[0:2],1), all_points[0,2] )  
-    vertices_tri = np.concatenate((vert, zval ), axis =2)
-
-    return vertices_tri
-
-def partition_to_convex(perimeter_2d):
-
-    ## Triangles are already convex
-    if len(perimeter_2d[0] ) == 3:
-        return  perimeter_2d
-
-    ## More that one perimeter implies polygon with holes
-    if len(perimeter_2d)>1:
-
-        peri = partition_holes(perimeter_2d)
-        peri_out = [partition_concave([p]) for p in peri]
-        peri_out = [p for peri in peri_out for p in peri]
-    else:   
-        peri_out = partition_concave(perimeter_2d)
-
-    return peri_out
-
-def partition_holes(perimeter):
-
-    edges_list = perimeters_to_edges(perimeter)
-    all_edges = np.concatenate(edges_list)
-
-    new_edges = find_closest_exterior(perimeter)   
-    first_edge = np.concatenate(perimeter)[new_edges]
-    last_edge =  np.concatenate(perimeter)[new_edges[:,::-1]]
-    
-    edges = np.concatenate([first_edge,all_edges,last_edge ])
-    
-    peri_new = get_ordered_perimeter(edges) ## discontinued 
-    peri_new = set_orientation(peri_new, orientation=1)
-
-    return peri_new
-
-def find_closest_exterior(perimeter):
-
-    angle_list = [get_perimeter_angles(p) for p in perimeter]
-    convex_idx_list = [np.nonzero( (a>180))[0] for a in angle_list]
-    
-    p_exterior = perimeter[0]
-    exterior_idx = np.array(range(len(p_exterior)))
-    p_idx = 1
-    
-    edges = [] 
-
-    flat_idx_start = len(p_exterior)
-
-    for p_interior in perimeter[1::]:
-
-        convex_idx = convex_idx_list[p_idx]
-        bisect = get_bisect_vector(p_interior)
-        
-        for idx in convex_idx:
-
-            interior_point = p_interior [ idx ]
-            point_dist = p_exterior - interior_point
-            point_dist = point_dist / (np.linalg.norm(point_dist, axis=1))[:,None] 
-            edge_dist = np.dot( point_dist, bisect[idx] )
-
-            match_idx = exterior_idx [ np.nonzero(edge_dist == np.max(edge_dist))[0][0] ]
-
-            self_idx = idx + flat_idx_start
-            new_edge = [self_idx, match_idx ]
-
-            edges.append( new_edge )
-
-        p_idx += 1
-        flat_idx_start += len(p_interior)
-    
-    edges = np.array(edges)
-
-    return edges 
-
-def find_closest_opposite(perimeter, idx):
-
-    perimeter = perimeter[0]
-    if perimeter.shape[1]==3:
-        perimeter = perimeter[:,0:2]
-        
-    adjcent = np.array([idx-1,idx,idx+1])
-    adjcent = np.mod(adjcent,len(perimeter)) 
-    other_idx = np.array([i for i in range(len(perimeter)) if i not in adjcent])
-
-    ba = np.array([perimeter[idx-1] - perimeter[idx]])
-    bc = perimeter[other_idx] - perimeter[idx]
-    
-    cross_angle = get_angle_vectors(bc, ba )    
-    bc = np.array([perimeter[adjcent[2]] - perimeter[idx]])
-    max_angle = get_angle_vectors(bc, ba )    
-
-    other_idx = other_idx[(cross_angle < max_angle)  & (cross_angle > 0)]
-
-    convex_point = perimeter[idx]
-
-    dist_vect = perimeter[other_idx] - convex_point
-    dist_vect_n = dist_vect / (np.linalg.norm(dist_vect, axis=1))[:,None]    
-
-    bisect = get_bisect_vector(perimeter)[idx] 
-
-    cos_dist = np.dot(dist_vect_n ,bisect)
-    sin_dist = np.cross(dist_vect_n ,bisect)
-    
-    opposite_dist = (1-cos_dist) * (np.linalg.norm(dist_vect, axis=1)) * abs(sin_dist)
-
-    opposite_idx = other_idx[np.argmin(opposite_dist)]
-    return opposite_idx 
-
-def partition_concave(perimeter):
-
-    angles = np.concatenate([get_perimeter_angles(p) for p in perimeter])
-    
-    convex_angles = angles[angles > 180]
-
-    if len(convex_angles)==0:
-        return perimeter
-
-    convex_idx = np.nonzero( angles == np.max(convex_angles) )[0][0] 
-    opposite_idx = find_closest_opposite(perimeter, convex_idx )
-
-    idx1, idx2 = convex_idx, opposite_idx 
-    if  convex_idx < opposite_idx:
-        idx1, idx2 = idx2, idx1
-
-    edges = perimeters_to_edges(perimeter)
-    first_edge = np.concatenate(perimeter)[[idx1,idx2]]
-    last_edge =  np.concatenate(perimeter)[[idx2,idx1]]
-    edges = np.concatenate([[first_edge],edges[0],[last_edge] ])
-
-    peri_new = get_ordered_perimeter(edges) ## Discontinued uses idxs only now 
-
-    peri_new = set_orientation(peri_new, orientation=1)
-
-    peri_out = []
-    for p in peri_new:
-        peri_out.extend( partition_concave([p]))
-
-    return peri_out
-
-def get_bisect_vector(peri):
-
-    Z = None
-    if peri.shape[1]==3:
-        Z = peri[:,2]
-        peri = peri[:,0:2]
-
-    peri_wrapped = np.concatenate([[peri[-1]],peri,[peri[0]]])
-
-    ba = np.array([[1,0]])
-    bc = peri_wrapped[2::] - peri_wrapped[1:-1]
-
-    base_angle = get_angle_vectors(ba, bc )    
-
-    angle = get_perimeter_angles(peri)/2 + base_angle
-    angle = np.deg2rad(angle)
-    bisect = np.stack([np.cos(angle), np.sin(angle)],axis=-1)
-    bisect = bisect / np.array(np.linalg.norm(bisect, axis=1))[:,None]
-
-    if Z is not None:
-        bisect = np.concatenate([bisect,Z[:,None]],axis=1)
-
-    return bisect
-
-
-def triangulate_convex(points):
-    """
-    
-    """
-    if len(points[0])==3:
-        return points
-
-    if len(points[0])<3:
-        return []
-
-    LR_ext = LinearRing(points[0])
-    polygon = Polygon(LR_ext)   
-    tri_Poly = ops.triangulate(polygon)
-    tri_Poly_within = [tri for tri in tri_Poly if tri.within(polygon)]
-    vert =  np.array([np.array(tri.exterior.xy)[:,0:3].T for tri in tri_Poly_within]) 
-
-    all_points = np.concatenate(points)
-    zval = np.full((*vert.shape[0:2],1), all_points[0,2] )  
-    vertices_tri = np.concatenate((vert, zval ), axis =2)
-
-    return vertices_tri
