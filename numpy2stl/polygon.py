@@ -11,6 +11,7 @@ from .view import *
 
 from collections import defaultdict 
  
+
 def get_ordered_perimeter( vertices, edges, validate=False):
 
     edge_graph = defaultdict(list)
@@ -18,15 +19,14 @@ def get_ordered_perimeter( vertices, edges, validate=False):
         edge_graph[e[0]].append(e[1])
 
     this_idx = list(edge_graph.keys())[0] 
-
     traces_all,trace = [],[]
     for _ in range(len(edges)):
         
         trace.append(this_idx)  
-        next_idxs = edge_graph[this_idx]
+        next_idxs = np.array(edge_graph[this_idx])
         
         if len(next_idxs)>1 and len(trace)>1:
-            smallest_idx = find_smaller_angle(  vertices[trace[-2]], vertices[trace[-1]], vertices[next_idxs[:,1]] )
+            smallest_idx = find_smaller_angle(  vertices[trace[-2]], vertices[trace[-1]], vertices[next_idxs] )
             next_idx = next_idxs[smallest_idx]
 
         elif len(next_idxs)>0:
@@ -51,11 +51,9 @@ def get_ordered_perimeter( vertices, edges, validate=False):
     #Validate the traces to be closed perimeters
     traces_out = []
     for trace in traces_all:
-        if (trace[0]!=trace[-1]): 
-            continue
+        if (trace[0]!=trace[-1]):        continue
         trace = trace[0:-1]   
-        if len(trace)<3:
-            continue 
+        if len(trace)<3:                 continue 
         traces_out.append(np.array(trace))
 
     return traces_out
@@ -65,10 +63,9 @@ def simplify_perimeters( vertices, perimeters, normal):
     simplified_perimeters = []
     for line_idx in perimeters:
         
-        if len(line_idx)<4:
+        if len(line_idx)<5:
             simpified_line = line_idx
         else:
-
             line = vertices[line_idx]
             line_2d = rotate_3D(line, normal, [0,0,1] )
             angles = get_perimeter_angles( line_2d) 
@@ -78,16 +75,13 @@ def simplify_perimeters( vertices, perimeters, normal):
 
     return simplified_perimeters
 
-def simplify_line(line_2d):
-
-    angles = get_perimeter_angles( line_2d) 
-    simpified_line = np.array(line_2d[  angles != 180  ])
-
-    return simpified_line
+def perimeters_to_edges(perimeters):
+    edges = [np.stack([ p, np.roll(p,1,axis=0) ],axis=1) for p in  perimeters ]
+    return edges 
 
 def perimeter_to_2D( perimeters, normal, simplify_lines=False):
     
-    perimeter_2d = [rotate_3D(peri, normal, [0,0,1] ) for peri in perimeters ]
+    perimeter_2d = [rotate_3D(lines, normal, [0,0,1] ) for lines in perimeters ]
 
     if simplify_lines:
         angles = [get_perimeter_angles(line) for line in perimeter_2d]
@@ -95,58 +89,10 @@ def perimeter_to_2D( perimeters, normal, simplify_lines=False):
 
     return perimeter_2d
 
-def vertices_to_2D( vertices, normal):
-    
-    vertices_2d = rotate_3D(vertices, normal, [0,0,1] )
-    
-    return vertices_2d
-    
-def find_smaller_angle( last_pt, this_pt , next_pts ):
 
-    bc = [last_pt - this_pt]
-    ba = next_pts - this_pt
-    ## Return dot product 
-    ba = ba / np.linalg.norm(ba,axis=1)[:,None]
-    bc = bc / np.linalg.norm(bc,axis=1)[:,None]
-    dot_prod = np.sum(ba*bc,axis=1)
+##########################################################################################
+##########################################################################################
 
-    ## Self angles should be last considered (if considered at all)
-    dot_prod[np.isclose(dot_prod,1)] = -1
-    idx = np.argsort(dot_prod)
-    return idx[-1]
-
-def get_angle_vectors(ba, bc ):
-
-    ba = ba / np.array(np.linalg.norm(ba, axis=1))[:,None]
-    bc = bc / np.array(np.linalg.norm(bc, axis=1))[:,None]
-    dot_prod = np.sum(ba*bc, axis=1) 
-    cross_prod = np.cross(ba,bc)
-
-    angle = np.arctan2(cross_prod , dot_prod)
-    angle = np.degrees(angle)
-    angle[angle<0] += 360
-
-    return angle
-
-def get_perimeter_angles(peri):
-
-    if peri.shape[1]==3:
-        peri = peri[:,0:2]
-        
-    peri_wrapped = np.concatenate([[peri[-1]],peri,[peri[0]]])
-
-    ba = peri_wrapped[0:-2] - peri_wrapped[1:-1]
-    bc = peri_wrapped[2::] - peri_wrapped[1:-1]
-    
-    angle = get_angle_vectors(bc, ba )
-   
-    return angle 
-
-def perimeters_to_edges(perimeters):
-
-    edges = [np.stack([ p, np.roll(p,1,axis=0) ],axis=1) for p in  perimeters ]
-
-    return edges 
 
 def get_perimeter_normal(perimeter):
 
@@ -165,8 +111,7 @@ def get_area(perimeter):
     normal = get_perimeter_normal(perimeter)
     perimeter = rotate_3D(perimeter, normal, [0,0,1] )
 
-    x = perimeter[:,0]
-    y = perimeter[:,1]
+    x,y = perimeter[:,0],perimeter[:,1]
 
     area = 0.5*np.abs(np.dot(x,np.roll(y,1))   -  np.dot(y,np.roll(x,1)))
     
@@ -193,7 +138,59 @@ def set_orientation(perimeter, orientation=1):
 
     return perimeter_out
 
-def rotate_3D(pts, src_vertex, des_vertex):
+##########################################################################################
+############################################################################################
+
+def get_perimeter_angles(line_2D):
+
+    if line_2D.shape[1]==3:
+        line_2D = line_2D[:,0:2]
+        
+    line_wrapped = np.concatenate([[line_2D[-1]],line_2D,[line_2D[0]]])
+    ba = line_wrapped[0:-2] - line_wrapped[1:-1]
+    bc = line_wrapped[2::] - line_wrapped[1:-1]
+    angles = get_angle_vectors(bc, ba )
+   
+    return angles
+
+def simplify_line(line_2D):
+
+    angles = get_perimeter_angles( line_2D ) 
+    simpified_line = np.array( line_2D[ angles!= 180 ] )
+
+    return simpified_line
+
+def get_angle_vectors(ba, bc):
+
+    ba = ba / np.array(np.linalg.norm(ba, axis=1))[:,None]
+    bc = bc / np.array(np.linalg.norm(bc, axis=1))[:,None]
+    dot_prod = np.sum(ba*bc, axis=1) 
+    cross_prod = np.cross(ba,bc)
+
+    angle = np.arctan2(cross_prod , dot_prod)
+    angle = np.degrees(angle)
+    angle[angle<0] += 360
+
+    return angle
+
+def find_smaller_angle( last_pt, this_pt , next_pts ):
+    bc = [last_pt - this_pt]
+    ba = next_pts - this_pt
+    ## Return dot product 
+    ba = ba / np.linalg.norm(ba,axis=1)[:,None]
+    bc = bc / np.linalg.norm(bc,axis=1)[:,None]
+    dot_prod = np.sum(ba*bc,axis=1)
+
+    ## Self angles should be last considered (if considered at all)
+    dot_prod[np.isclose(dot_prod,1)] = -1
+    idx = np.argsort(dot_prod)
+    return idx[-1]
+
+
+##########################################################################################
+############################################################################################
+
+def rotate_3D(pts, src_vertex, des_vertex=[0,0,1]):
     """
     """
     mat = rotation_matrix_from_vertices(src_vertex, des_vertex)
@@ -224,6 +221,9 @@ def rotation_matrix_from_vertices(vec1, vec2):
         rotation_matrix = np.eye(3) + kmat + kmat.dot(kmat) * ((1 - c) / (s ** 2))
 
     return rotation_matrix
+
+#################################################################################
+#################################################################################
 
 def triangulate_polygon(vertices_2D, perimeters):
 
@@ -262,3 +262,4 @@ def triangulate_edges(vertices_2D, edges, holes=None):
     faces = np.argsort(edges[:,0])[sub_faces]
 
     return vertices,faces
+
