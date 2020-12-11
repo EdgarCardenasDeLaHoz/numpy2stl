@@ -87,9 +87,14 @@ def draw_3D_vertices(vertices, surfaces=None, surf_color=None, ax=None):
 
 def set_limits_3D(ax,x,y,z):
     
-    xlim = np.array((np.amin(x)-1, np.amax(x)+1))
-    ylim = np.array((np.amin(y)-1, np.amax(y)+1))
-    zlim = np.array((np.amin(z)-1, np.amax(z)+1))
+    xlim = np.array((np.amin(x)-.01, np.amax(x)+.01))
+    ylim = np.array((np.amin(y)-.01, np.amax(y)+.01))
+    zlim = np.array((np.amin(z)-.01, np.amax(z)+.01))
+
+    xy_dif = np.max( (np.diff(xlim) , np.diff(ylim) ))
+
+    xlim = xlim.mean() + (np.array([-.5,.5])*xy_dif)
+    ylim = ylim.mean() + (np.array([-.5,.5])*xy_dif)
 
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
