@@ -4,6 +4,7 @@ from itertools import product
 from .tools import *
 from .solid import *
 
+import scipy.ndimage as ndi
 
 ############################# convert array to facet list ##########################################
 
@@ -75,8 +76,6 @@ def array2faces__(A, mask_val=0):
     
     return vertices, faces
 
-import scipy.ndimage as ndi
-
 def array2faces(A, mask_val=0):
     
     m, n = A.shape
@@ -123,7 +122,6 @@ def limit_facet_size(facets, max_width=1000., max_depth=1000., max_height=1000.)
 
     return facets
 
-
 def polygon_to_prism(vertices, perimeters=None, base_val=0):
 
     if perimeters is None:
@@ -132,17 +130,15 @@ def polygon_to_prism(vertices, perimeters=None, base_val=0):
     wall_triangles = perimeter_to_walls(vertices, perimeters, floor_val=base_val)
     
     _, faces = simplify_surface(vertices, perimeters)
+    top_triangles = vertices[faces]
 
     bottom_vertices = vertices.copy()
     bottom_vertices[:,2] = base_val
-
-    top_triangles = vertices[faces]
-    bottom_triangles = bottom_vertices[faces]
+    bottom_triangles = bottom_vertices[faces[:,[1,0,2]]]
     
     all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
 
     return all_triangles
-
 
 def perimeter_to_walls(vertices, perimeters, floor_val=0):
     """
@@ -170,8 +166,6 @@ def perimeter_to_walls(vertices, perimeters, floor_val=0):
     wall_vertices = np.array(wall_vertices)
     return wall_vertices
 
-
 def roll2d(image, shifts):
-
     return np.roll(np.roll(image, shifts[0], axis=0), shifts[1], axis=1)
 

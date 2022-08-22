@@ -8,7 +8,6 @@ from shapely.geometry import Polygon, MultiPolygon
 from shapely.geometry.polygon import LinearRing, LineString, orient
 
 from .view import *
-
 from collections import defaultdict 
  
 
@@ -89,10 +88,8 @@ def perimeter_to_2D( perimeters, normal, simplify_lines=False):
 
     return perimeter_2d
 
-
 ##########################################################################################
 ##########################################################################################
-
 
 def get_perimeter_normal(perimeter):
 
@@ -186,7 +183,6 @@ def find_smaller_angle( last_pt, this_pt , next_pts ):
     idx = np.argsort(dot_prod)
     return idx[-1]
 
-
 ##########################################################################################
 ############################################################################################
 
@@ -247,10 +243,16 @@ def triangulate_polygon(vertices_2D, perimeters):
 
 def triangulate_edges(vertices_2D, edges, holes=None):
 
+    if vertices_2D.shape[1]==3:
+        vertices_2D = vertices_2D[:,:2]
+
+        vertices_2D
+   
+
     if holes is None:
-        shape = {"vertices": vertices_2D[:,[0,1]], "segments": edges}   
+        shape = {"vertices": vertices_2D, "segments": edges}   
     else:
-        shape = {"vertices": vertices_2D[:,[0,1]], "segments": edges, "holes": holes}
+        shape = {"vertices": vertices_2D, "segments": edges, "holes": holes}
     t = tr.triangulate(shape,'p')  
 
     vertices = t["vertices"]

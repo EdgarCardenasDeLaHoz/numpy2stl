@@ -5,12 +5,13 @@ from .save import *
 
 from collections import defaultdict 
 
+
 class Solid:
 
-    def __init__(self, facets):
+    def __init__(self, triangles):
 
-        vertices, faces = vertices_to_index(facets)
-        surfaces, normals = get_surfaces(facets)
+        vertices, faces = vertices_to_index(triangles)
+        surfaces, normals = get_surfaces(triangles)
 
         self.vertices = vertices
         self.faces = faces
@@ -30,6 +31,7 @@ class Solid:
         triangles = self.vertices[self.faces]
         facets = triangles_to_facets(triangles)
         writeSTL(facets, filename, ascii=ascii)
+
 
         
 def calculate_normals(triangles):
@@ -56,7 +58,6 @@ def get_face_area(triangles):
     area =  np.linalg.norm(normals) / 2
         
     return area
-
 
 def get_surfaces(triangles, normals=None):
     """ 
@@ -108,7 +109,6 @@ def edges_to_dict(edge_idx):
             edge_dict[e].append( f_idx )
 
     return edge_dict
-
 
 def contiguous_edges(edge_idx, idx_list):
 
@@ -187,8 +187,7 @@ def simplify_surface(vertices, perimeters, normal=None):
     """
     """    
     ## Flatten boundry to 2D
-    if normal is None:
-        normal = np.array([0,0,1])
+    if normal is None:  normal = np.array([0,0,1])
 
     sub_verts = vertices[np.concatenate(perimeters)]
     sub_peri = []
@@ -197,7 +196,11 @@ def simplify_surface(vertices, perimeters, normal=None):
         sub_peri.append(np.arange(len(p))+end)
         end += len(p)
 
-    sub_verts_2D = rotate_3D(sub_verts, normal)
+    if sub_verts.shape[1]==2:
+        sub_verts_2D = sub_verts
+    elif  sub_verts.shape[1]==3:
+        sub_verts_2D = rotate_3D(sub_verts, normal)
+
     _,sub_faces = triangulate_polygon( sub_verts_2D , sub_peri)
     faces = np.concatenate(perimeters)[sub_faces]
 
@@ -226,7 +229,6 @@ def get_perimeter_list(solid):
 
     return perimeter_list
 
-
 def get_min_required_vertices( vertices, perimeter_list, normal_list):
 
     simplified_vertices = []
@@ -250,7 +252,6 @@ def get_min_required_vertices( vertices, perimeter_list, normal_list):
     for poly in perimeter_list]
 
     return req_vert_idx
-
     
 def validate_object(solid):
     """
@@ -282,7 +283,6 @@ def validate_object(solid):
     if (is_valid)==False:
         print("Solid is not valid")
 
-
 def index_edges(vertices):
 
     ## Make vertex list
@@ -313,7 +313,6 @@ def get_open_edges(faces):
     ## Reconstruct Edge positions from locations
     
     return open_edges
-
 
 def triangles_to_facets(triangles):
 
