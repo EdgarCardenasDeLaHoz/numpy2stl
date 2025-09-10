@@ -8,6 +8,10 @@ import scipy.ndimage as ndi
 
 ############################# convert array to facet list ##########################################
 
+import os
+import numpy as np
+
+
 def numpy2stl(A, mask_val=0, solid=True):
     """
     Reads a numpy array, and list of facets
@@ -41,6 +45,7 @@ def numpy2stl(A, mask_val=0, solid=True):
         bottom_vertices = top_vertices.copy()
         bottom_vertices[:,2] = min_val
 
+        print("Simplifying Surfaces...")
         _, bottom_faces = simplify_surface(bottom_vertices, perimeters)
         bottom_faces = bottom_faces[:,[1,0,2]]
         bottom_triangles = bottom_vertices[bottom_faces]

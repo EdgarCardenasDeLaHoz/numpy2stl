@@ -1,8 +1,6 @@
 
 import struct
 
-################### Write to file ##########################
-
 def _build_binary_stl(facets):
     """returns a string of binary binary data for the stl file"""
 
