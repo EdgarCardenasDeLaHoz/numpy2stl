@@ -45,3 +45,31 @@ def writeSTL(facets, file_name, ascii=False):
         f.write(data)
 
     f.close()
+
+
+def writeOBJ(file_name, models):
+    """
+    Writes multiple meshes into a single OBJ file.
+    Each key in the puzzle dictionary becomes a named object.
+    """
+    with open(file_name, 'w') as f:
+        f.write("# Exported Puzzle Project\n")
+        
+        v_offset = 1  # OBJ indices are 1-based and cumulative
+        
+        for key, (vertices, faces) in models.items():
+            f.write(f"\no {key}\n")  # Define a new object
+            
+            # Write vertices for this object
+            for v in vertices:
+                f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
+            
+            # Write faces (shifting indices by the current offset)
+            for face in faces:
+                # OBJ indices: v1 v2 v3
+                f.write(f"f {face[0] + v_offset} {face[1] + v_offset} {face[2] + v_offset}\n")
+            
+            # Update offset for the next object
+            v_offset += len(vertices)
+
+    print(f"✅ Successfully saved {len(models)} objects to {file_name}")
