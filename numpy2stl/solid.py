@@ -11,12 +11,12 @@ class Solid:
     def __init__(self, triangles):
 
         vertices, faces = vertices_to_index(triangles)
-        surfaces, normals = get_surfaces(triangles)
+        #surfaces, normals = get_surfaces(vertices, faces)
 
         self.vertices = vertices
         self.faces = faces
-        self.surfaces = surfaces
-        self.normals = normals 
+        #self.surfaces = surfaces
+        #self.normals = normals 
 
     def validate_object(self):
         validate_object(self)
@@ -44,10 +44,27 @@ def calculate_normals(triangles):
 
 def vertices_to_index(triangles):
     """
+    Optimized vertex indexing using the void-view trick.
+    Reduces 100% bottleneck in np.unique(axis=0).
     """
-    vertices_list = np.reshape(triangles, (triangles.shape[0]*3,3))
-    uni_vertices, vertices_idx = np.unique(vertices_list, axis=0 , return_inverse=True)
-    vertices_idx = np.reshape(vertices_idx, (triangles.shape[0],3))
+    # 1. Flatten and Round
+    v_flat = triangles.reshape(-1, 3)
+    v_rounded = np.round(v_flat, 7)
+    
+    # 2. View as a 1D array of 24-byte blocks
+    # This makes np.unique much faster than axis=0
+    v_view = v_rounded.view(np.dtype((np.void, v_rounded.dtype.itemsize * 3)))
+    
+    # 3. Perform the unique operation
+    _, unique_indices, inverse_indices = np.unique(
+        v_view, 
+        return_index=True, 
+        return_inverse=True
+    )
+    
+    # 4. Reconstruct the indexed mesh
+    uni_vertices = v_rounded[unique_indices]
+    vertices_idx = inverse_indices.reshape(-1, 3)
     
     return uni_vertices, vertices_idx
 
@@ -59,18 +76,19 @@ def get_face_area(triangles):
         
     return area
 
-def get_surfaces(triangles, normals=None):
+def get_surfaces(vertices,faces, normals=None):
     """ 
         vertices is a M x 3 x 3 array of M triangles in 3D, 
         normals are [x,y,z] float normal vertices 
     """
     ## Todo: use shared edges not vertices to make surface 
 
+    triangles = vertices[faces]
     if normals is None:
         normals = calculate_normals(triangles)
 
     norm_Dict = normal_to_dict(normals)
-    _, edge_idx = index_edges(triangles)    
+    _, edge_idx = index_edges(faces)    
 
     surfaces = []
     for n_id in norm_Dict:
@@ -83,23 +101,39 @@ def get_surfaces(triangles, normals=None):
         
         sub_edges = edge_idx[face_id] 
         surf = contiguous_edges(sub_edges,face_id)
-
         surfaces.extend(surf)
 
     surface_normals = np.array([normals[surf[0]] for surf in surfaces])
+    #print([len(s) for s in surfaces], surface_normals)
                 
     return surfaces, surface_normals
 
-def normal_to_dict(normals):
-
-    normals = normals.round(decimals=9)
-    uni_normals, normals_idx = np.unique(normals, axis=0 , return_inverse=True)
-    norm_Dict = defaultdict(list) 
-    for face_id in range(len(normals_idx)): 
-        n_id = normals_idx[face_id] 
-        norm_Dict[n_id].append(face_id) 
-
-    return norm_Dict
+def normal_to_dict(normals, decimals=5):
+    """
+    Groups face indices by their normal vectors.
+    decimals: number of decimal places to round to (handles float jitter).
+    """
+    # 1. Round to handle precision errors (e.g., 0.99999999 vs 1.0)
+    rounded_normals = np.round(normals, decimals=decimals)
+    
+    # 2. Find unique rows and the mapping (inverse)
+    # axis=0 treats each [x, y, z] as a single unit
+    unique_norms, inverse, counts = np.unique(
+        rounded_normals, 
+        axis=0, 
+        return_inverse=True, 
+        return_counts=True
+    )
+    
+    # 3. Sort face indices so those sharing the same normal are adjacent
+    idx_sort = np.argsort(inverse)
+    
+    # 4. Split the sorted indices into groups based on counts
+    split_indices = np.cumsum(counts)[:-1]
+    groups = np.split(idx_sort, split_indices)
+    
+    # Return a dictionary where keys are the actual (rounded) normal tuple
+    return {tuple(norm): group.tolist() for norm, group in zip(unique_norms, groups)}
 
 def edges_to_dict(edge_idx):
 
@@ -110,8 +144,57 @@ def edges_to_dict(edge_idx):
 
     return edge_dict
 
-def contiguous_edges(edge_idx, idx_list):
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 
+def contiguous_edges(edge_idx, idx_list):
+    """
+    Finds contiguous surfaces within a subset of faces.
+    edge_idx: (N, 3) vertex indices for the subset of faces
+    idx_list: (N,) the original global face IDs
+    """
+    # Safety check for empty input
+    if edge_idx.shape[0] == 0:
+        return []
+    if edge_idx.shape[0] == 1:
+        return [np.array(idx_list)]
+
+    num_faces = edge_idx.shape[0]
+    
+    # 1. Flatten the data for the matrix
+    # Map which sub-face uses which vertex/edge
+    flat_edges = edge_idx.ravel()
+    # Create local indices [0, 0, 0, 1, 1, 1...]
+    face_indices = np.repeat(np.arange(num_faces), edge_idx.shape[1])
+    
+    # 2. Build the B matrix (Edges x Faces)
+    # This maps which faces share the same edge/vertex value
+    B = csr_matrix((np.ones_like(flat_edges), (flat_edges, face_indices)))
+    
+    # 3. Create the Adjacency Matrix (Faces x Faces)
+    # The dot product finds faces that share at least one value in B
+    adj_matrix = B.T @ B
+    
+    # 4. Find connected components
+    # This replaces the manual queue/while loop logic
+    n_components, labels = connected_components(csgraph=adj_matrix, directed=False)
+    
+    # 5. Group the original idx_list by the labels found
+    # We must convert idx_list to a numpy array to use advanced indexing
+    idx_list = np.asarray(idx_list)
+    sort_idx = np.argsort(labels)
+    sorted_labels = labels[sort_idx]
+    sorted_idx_list = idx_list[sort_idx]
+    
+    # Split the sorted list whenever the label changes
+    diff = np.where(np.diff(sorted_labels))[0] + 1
+    surfaces = np.split(sorted_idx_list, diff)
+    
+    return surfaces
+
+def contiguous_edges_old(edge_idx, idx_list):
+
+    ## Old Slow Original Method
     edge_dict = edges_to_dict(edge_idx)
 
     b_unchecked = np.ones(edge_idx.shape[0],dtype=bool)  
@@ -164,12 +247,12 @@ def simplify_object_3D(solid):
 
     for n, peri in enumerate(perimeter_list):
         
-        if len(peri) == 1 and len(peri[0])==3:
+        if len(peri) == 1 and len(peri[0])==3: #Perimeter is a triangle
             new_faces = [peri[0]]
 
-        #elif len(peri) == 1 and len(peri[0])==4:
-        #    new_faces = faces[surfaces[n]]
-           
+        elif len(peri) == 1 and len(peri[0])==4: #Perimeter is a quad
+            new_faces = [peri[0][[0,1,2]], peri[0][[0,2,3]]]
+          
         else:
             norm = normals[n]
             peri = [p for p in peri]
@@ -200,7 +283,7 @@ def simplify_surface(vertices, perimeters, normal=None):
         sub_verts_2D = sub_verts
     elif  sub_verts.shape[1]==3:
         sub_verts_2D = rotate_3D(sub_verts, normal)
-
+    
     _,sub_faces = triangulate_polygon( sub_verts_2D , sub_peri)
     faces = np.concatenate(perimeters)[sub_faces]
 
@@ -283,28 +366,48 @@ def validate_object(solid):
     if (is_valid)==False:
         print("Solid is not valid")
 
-def index_edges(vertices):
+def index_edges(faces):
+    # 1. Extract edges from faces (each face has 3 edges)
+    # faces is (M, 3) where each row is [v1, v2, v3]
+    # We create pairs: [v1,v2], [v2,v3], [v3,v1]
+    edges = np.sort(faces[:, [[0, 1], [1, 2], [2, 0]]], axis=2)
+    edge_list = edges.reshape(-1, 2)
+
+    # 2. Pack the vertex ID pairs into a single 64-bit integer
+    # This assumes your vertex indices fit in 32-bit integers
+    packed_edges = edge_list[:, 0].astype(np.int64) << 32 | edge_list[:, 1]
+
+    # 3. Find unique edges using 1D logic (extremely fast)
+    # return_inverse gives us the ID of each edge
+    _, edge_inverse = np.unique(packed_edges, return_inverse=True)
+
+    # 4. Reshape back to (M, 3) to map each triangle to its 3 edge IDs
+    edge_idx = edge_inverse.reshape(-1, 3)
+    
+    return _, edge_idx
+
+def index_edges_old(vertices):
 
     ## Make vertex list
     _, vert_idx = vertices_to_index(vertices)
     ## Make Edges list
     edges = vert_idx[:,[[0,1],[1,2],[2,0]]]
-    edge_list = np.reshape(edges, (edges.shape[0]*3, 2))
+    edge_list = np.reshape(edges, (-1, 2))
     ## Count edge occurance 
     edge_sorted = np.sort(edge_list,axis=1)
     uni_edges, edge_idx = np.unique(edge_sorted, axis=0, return_inverse=True)
 
-    edge_idx = np.reshape(edge_idx, (vertices.shape[0],3))
+    edge_idx = np.reshape(edge_idx, (-1,3))
 
     return uni_edges, edge_idx
 
-def get_open_edges(faces):
+def get_open_edges_old(faces):
         
     ## Make Edges list
     edges = faces[:,[[0,1],[1,2],[2,0]]]
     edge_list = np.reshape(edges, (edges.shape[0]*3, 2))
     ## Count edge occurance 
-    edge_sorted = np.sort(edge_list,axis=1)
+    edge_sorted = np.sort(edge_list,axis=1).astype(np.int64)
     _, edge_idx, edge_counts = np.unique(edge_sorted, axis=0, return_counts=True, return_inverse=True)
 
     edge_counts_exp = edge_counts[edge_idx]
@@ -313,6 +416,36 @@ def get_open_edges(faces):
     ## Reconstruct Edge positions from locations
     
     return open_edges
+
+def get_open_edges(faces):
+    # 1. Create all edges (N*3, 2)
+    edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    
+    # 2. Sort edges so [A, B] and [B, A] are identical
+    # We do this manually to avoid np.sort overhead
+    p1 = edges.min(axis=1)
+    p2 = edges.max(axis=1)
+    
+    # 3. Hash the edges into a 1D array (int64)
+    # This is the secret sauce. It makes the unique search 1D.
+    # Max index is used to ensure no collisions.
+    max_idx = faces.max() + 1
+    edge_keys = p1 * max_idx + p2
+    
+    # 4. Replace np.unique with argsort (The Speedup)
+    # We find where a key is NOT equal to its neighbors in a sorted list
+    idx = np.argsort(edge_keys)
+    sorted_keys = edge_keys[idx]
+    
+    # Mask elements that are different from both their left and right neighbor
+    mask = np.ones(len(sorted_keys), dtype=bool)
+    mask[1:] &= (sorted_keys[1:] != sorted_keys[:-1])
+    mask[:-1] &= (sorted_keys[:-1] != sorted_keys[1:])
+    
+    # 5. Map back to original edges using the sorted index
+    return edges[idx[mask]]
+    
+
 
 def triangles_to_facets(triangles):
 
