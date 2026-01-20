@@ -44,10 +44,8 @@ def numpy2stl(A, mask_val=0, solid=True):
         print("Creating bottom...")
         bottom_vertices = top_vertices.copy()
         bottom_vertices[:,2] = min_val
-
-        print("Simplifying Surfaces...")
         _, bottom_faces = simplify_surface(bottom_vertices, perimeters)
-        bottom_faces = bottom_faces[:,[1,0,2]]
+        bottom_faces = bottom_faces[:,[1,0,2]] ## flip the order to make it a solid surface
         bottom_triangles = bottom_vertices[bottom_faces]
         
         all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
@@ -127,6 +125,25 @@ def limit_facet_size(facets, max_width=1000., max_depth=1000., max_height=1000.)
 
     return facets
 
+def polygon_to_complex(vertices, perimeters=None, z_margin=1):
+
+    if perimeters is None:
+        perimeters = [ np.arange(len(vertices)) ]
+
+    wall_triangles = perimeter_to_complex_walls(vertices, perimeters, z_margin)
+
+    _, faces = simplify_surface(vertices[:,:2], perimeters)
+    top_triangles = vertices[faces]
+    top_triangles[:,:,2] = top_triangles[:,:,2]+z_margin
+
+    bottom_vertices = vertices.copy()
+    bottom_vertices[:,2] = bottom_vertices[:,2]-z_margin
+    bottom_triangles = bottom_vertices[faces[:,[1,0,2]]]
+    
+    all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
+
+    return all_triangles
+
 def polygon_to_prism(vertices, perimeters=None, base_val=0):
 
     if perimeters is None:
@@ -156,11 +173,44 @@ def perimeter_to_walls(vertices, perimeters, floor_val=0):
 
         for n,_ in enumerate(peri):
 
-            top_left = np.concatenate([  peri[n,0:2], [floor_val] ])
-            top_right = np.concatenate([  peri_roll[n,0:2], [floor_val] ])
+            top_left = np.concatenate([  peri[n,:2], [floor_val] ])
+            top_right = np.concatenate([  peri_roll[n,:2], [floor_val] ])
 
             bottom_left = np.array(  peri[n]  )
             bottom_right = np.array(  peri_roll[n] )
+
+            vert = [top_right, top_left, bottom_right]
+            wall_vertices.append(vert)
+
+            vert = [bottom_right, top_left, bottom_left]
+            wall_vertices.append(vert)
+
+    wall_vertices = np.array(wall_vertices)
+    return wall_vertices
+
+
+def perimeter_to_complex_walls(vertices, perimeters, z_margin=1):
+    """
+    """ 
+    wall_vertices = []
+
+    for peri in perimeters: 
+        peri = vertices[peri]
+        peri_roll = np.roll(peri,1,axis=0)
+
+        for n,_ in enumerate(peri):
+
+            top_left = np.array(peri[n])
+            top_right = np.array(peri_roll[n])
+
+            top_left[2] = top_left[2]-z_margin
+            top_right[2] = top_right[2]-z_margin
+
+            bottom_left = np.array(  peri[n]  )
+            bottom_right = np.array(  peri_roll[n] )
+
+            bottom_left[2] = bottom_left[2]+z_margin
+            bottom_right[2] = bottom_right[2]+z_margin
 
             vert = [top_right, top_left, bottom_right]
             wall_vertices.append(vert)
