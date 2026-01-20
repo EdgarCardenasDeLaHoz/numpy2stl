@@ -11,7 +11,7 @@ from .view import *
 from collections import defaultdict 
  
 
-def get_ordered_perimeter( vertices, edges, validate=False):
+def get_ordered_perimeter_old( vertices, edges, validate=False):
 
     edge_graph = defaultdict(list)
     for e in edges:
@@ -51,11 +51,82 @@ def get_ordered_perimeter( vertices, edges, validate=False):
     traces_out = []
     for trace in traces_all:
         if (trace[0]!=trace[-1]):        continue
-        trace = trace[0:-1]   
         if len(trace)<3:                 continue 
+
+        trace = trace[0:-1]   
         traces_out.append(np.array(trace))
 
     return traces_out
+
+
+def get_ordered_perimeter( vertices, edges, validate=False):
+
+    loops = chain_open_edges(edges)
+    shell, holes = sort_perimeters(loops, vertices)
+    return [shell] + holes
+
+
+def chain_open_edges(open_edges):
+    """
+    Chains unordered edges into ordered perimeter loops.
+    """
+    if len(open_edges) == 0:
+        return []
+
+    # 1. Build an adjacency map: current_vertex -> next_vertex
+    # Since these are open loops, each vertex appears exactly twice in open_edges
+    adj = defaultdict(list)
+    for u, v in open_edges:
+        adj[u].append(v)
+        adj[v].append(u)
+
+    # 2. Extract loops
+    loops = []
+    visited = set()
+    
+    # We still use a while loop to find separate islands (outer shell vs holes)
+    for start_node in adj:
+        if start_node in visited:
+            continue
+        
+        loop = []
+        curr = start_node
+        prev = None
+        
+        while curr not in visited:
+            visited.add(curr)
+            loop.append(curr)
+            # Find the next neighbor that isn't the one we just came from
+            next_nodes = adj[curr]
+            next_node = next_nodes[0] if next_nodes[0] != prev else next_nodes[1]
+            prev, curr = curr, next_node
+            
+        loops.append(np.array(loop))
+    
+    # 3. Sort by area (optional)
+    # Usually, the shell is the loop with the largest bounding box/area
+    return loops
+
+def get_signed_area(loop, projected):
+    coords = projected[loop]
+    x = coords[:, 0]
+    y = coords[:, 1]
+    # Shoelace formula
+    return 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
+
+def sort_perimeters(loops, projected):
+    # Calculate areas
+    areas = [get_signed_area(l, projected) for l in loops]
+    
+    # The shell is usually the one with the largest absolute area
+    abs_areas = [abs(a) for a in areas]
+    shell_idx = np.argmax(abs_areas)
+    
+    shell = loops.pop(shell_idx)
+    holes = loops
+    
+    return shell, holes
+
 
 def simplify_perimeters( vertices, perimeters, normal):
 
@@ -245,8 +316,6 @@ def triangulate_edges(vertices_2D, edges, holes=None):
 
     if vertices_2D.shape[1]==3:
         vertices_2D = vertices_2D[:,:2]
-
-        vertices_2D
    
 
     if holes is None:
