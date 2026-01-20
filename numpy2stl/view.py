@@ -100,3 +100,22 @@ def set_limits_3D(ax,x,y,z):
     ax.set_ylim(*ylim)
     ax.set_zlim(*zlim)  
 
+import napari
+
+def render_models_napari(models):
+	print("opening - Napari")
+	v = napari.current_viewer()
+	if v is None: v = napari.Viewer()
+	v.layers.clear()
+
+	for key in models:
+		print(key)
+
+		vertices, faces = models[key]
+		print(len(faces) )
+		surface = (vertices,faces)
+		s = v.add_surface(surface)
+		s.wireframe.visible = len(faces) < 2000000
+		s.name = key
+		s.opacity = 1
+		s.blend_mode = "translucent"
