@@ -29,19 +29,19 @@ def numpy2stl(A, mask_val=0, solid=True):
         mask_val = A.min() - 1.  
     min_val = mask_val
     
-    print("Creating top...")
+    print("Creating top...", end="")
     top_vertices, top_faces = array2faces(A, mask_val=mask_val)
     top_triangles = top_vertices[top_faces]
 
     if solid:
         ## Walls
-        print("Creating walls...")
+        print("Creating walls...", end="")
         edges = get_open_edges(top_faces)
         perimeters = get_ordered_perimeter(top_vertices, edges )
         wall_triangles = perimeter_to_walls(top_vertices, perimeters, floor_val=min_val)
         
         ##Bottom 
-        print("Creating bottom...")
+        print("Creating bottom...", )
         bottom_vertices = top_vertices.copy()
         bottom_vertices[:,2] = min_val
         _, bottom_faces = simplify_surface(bottom_vertices, perimeters)

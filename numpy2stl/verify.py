@@ -1,71 +1,101 @@
 import trimesh
 import numpy as np
-from .simplify import  get_open_edges
 
-def check_model_status(models):
+import numpy as np
+from collections import Counter
 
-    # Assuming get_open_edges is defined elsewhere in your script
+import trimesh
+import numpy as np
+from collections import Counter
+
+def check_model_status(models, use_trimesh=True, repair=True):
+    """
+    Analyzes and optionally repairs 3D mesh models.
+    """
+    repaired_models = {}
+
     for key, (vertices, faces) in models.items():
-        mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
-
-        # --- Repair Pipeline ---
-        mesh.fix_normals()
-        mesh.fill_holes()            # Attempts to close gaps
-        mesh.merge_vertices()        # Merges vertices within a small epsilon
-        mesh.remove_duplicate_faces()
-
-        # --- Data Collection ---
-        centroid = mesh.vertices.mean(axis=0)
-        dims = mesh.vertices.ptp(axis=0)
-        open_edges = get_open_edges(mesh.faces)
-        # Find faces where vertex indices are repeated (degenerate)
-        degenerate_faces = [i for i, face in enumerate(mesh.faces) if len(set(face)) < len(face)]
-
-        # --- Improved Print Statements ---
-        print(f"{'='*30}")
+        print(f"\n{'='*30}")
         print(f"ID: {key}")
-
-        print(f"Centroid (XYZ):  {np.round(centroid, 3)}")
-        print(f"Dimensions:      {np.round(dims, 3)}")
-        print(f"Watertight:      {'✅ Yes' if mesh.is_watertight else '❌ No'}")
-        print(f"Valid Volume:    {'✅ Yes' if mesh.is_volume else '❌ No'}")
         
-        if not mesh.is_watertight:
-          print(f"Open Edges:      {len(open_edges)} (Holes detected)")
-        
-        if degenerate_faces:
-          print(f"Degenerate:      {len(degenerate_faces)} faces found")
-          
-        print(f"{'-'*30}")
+        # 1. Basic Stats
+        centroid = vertices.mean(axis=0)
+        dims = vertices.ptp(axis=0)
+        print(f"Centroid (XYZ):  {np.round(centroid, 2)}")
+        print(f"Dimensions:      {np.round(dims, 2)}")
 
+        # 2. Geometry Analysis (Vectorized)
+        naked, non_manifold = find_mesh_issues(faces)
+        conflicts = check_orientation(faces)
+
+        print(f"Holes (Naked Edges): {len(naked)}")
+        print(f"Non-Manifold Edges:  {len(non_manifold)}")
+        print(f"Normal Conflicts:    {len(conflicts)} (Winding issues)")
+
+        if use_trimesh:
+            # Initialize Mesh
+            mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=True)
+            
+            # Diagnostic Report
+            diagnose_mesh(mesh)
+
+            if repair:
+                # The 'Healing' Pipeline
+                mesh.remove_duplicate_faces()
+                mesh.remove_infinite_values()
+                mesh.remove_unreferenced_vertices()
+                mesh.merge_vertices(merge_tex=True, merge_norm=True)
+                mesh.fix_normals()  # Fixes the 'Inside-Out' issue
+                mesh.fill_holes()   # Attempts to make it watertight
+            
+            # Store repaired data
+            repaired_models[key] = (mesh.vertices, mesh.faces)
+            
+    print(f"{'='*30}\n")
+    return repaired_models
+
+def find_mesh_issues(faces):
+    """Vectorized check for holes and over-shared edges."""
+    edges = np.sort(np.vstack([faces[:, [0,1]], faces[:, [1,2]], faces[:, [2,0]]]), axis=1)
+    # View as structured array for unique counting
+    edge_view = np.ascontiguousarray(edges).view(np.dtype((np.void, edges.dtype.itemsize * 2)))
+    _, counts = np.unique(edge_view, return_counts=True)
+    
+    naked = np.sum(counts == 1)
+    non_manifold = np.sum(counts > 2)
+    return ["edge"] * naked, ["edge"] * non_manifold
+
+def check_orientation(faces):
+    """Vectorized check for inconsistent winding (Normal conflicts)."""
+    edges = np.vstack([faces[:, [0,1]], faces[:, [1,2]], faces[:, [2,0]]])
+    # Map directed edges to a single hashable value
+    max_v = faces.max() + 1
+    edge_hashes = edges[:, 0] * max_v + edges[:, 1]
+    
+    unique_hashes, counts = np.unique(edge_hashes, return_counts=True)
+    # Conflicts: edges that appear more than once in the SAME direction
+    conflicts = unique_hashes[counts > 1]
+    return conflicts
 
 def diagnose_mesh(mesh):
-    print(f"Watertight: {mesh.is_watertight}")
-    print(f"Volume:     {mesh.volume:.6f}")
+    """Detailed Trimesh-based manifold health check."""
+    status = []
+    if mesh.is_watertight: status.append("✅ Watertight")
+    else: status.append("❌ Holes Detected")
     
-    # 1. Check for Zero-Area Triangles (Degenerate Faces)
-    degenerate = mesh.area_faces < 1e-8
-    if np.any(degenerate):
-        print(f"❌ Found {np.sum(degenerate)} degenerate (zero-area) triangles.")
-
-    # 2. Check Face Orientations (Normals)
-    # If normals point in conflicting directions, volume can sum to zero.
-    if not mesh.is_winding_consistent:
-        print("❌ Winding order is inconsistent (some faces are inside-out).")
+    if mesh.is_volume: status.append("✅ Valid Volume")
+    else: status.append("❌ Zero/Invalid Volume")
     
-    # 3. Check for Self-Intersections
-    # A "watertight" mesh that intersects itself often has zero or negative volume.
-    if mesh.is_self_intersecting:
-        print("❌ Mesh is self-intersecting.")
-
-    # 4. Dimensionality Check (Is it flat?)
-    extents = mesh.extents
-    print(f"Bounding Box Dimensions: {extents}")
-    if np.any(extents < 1e-5):
-        print("❌ Mesh is effectively 2D (one dimension is near zero).")
-
-    # 5. Visual Highlight (Optional)
-    # This colorizes faces that might be causing issues
-    if np.any(degenerate):
-        mesh.visual.face_colors[degenerate] = [255, 0, 0, 255] # Red for degenerate
-        print("👉 Degenerate faces have been colored Red.")
+    if not mesh.is_winding_consistent: status.append("⚠️ Inconsistent Winding")
+    
+    print(f"Status:          {' | '.join(status)}")
+    print(f"Volume:          {mesh.volume:.4f}")
+    
+    # Check for degenerate (zero-area) faces
+    degenerate_count = np.sum(mesh.area_faces < 1e-7)
+    if degenerate_count > 0:
+        print(f"Degenerate:      {degenerate_count} zero-area faces found")
+    
+    # Dimensionality check
+    if np.any(mesh.extents < 1e-4):
+        print("Warning:         Mesh is effectively 2D/Flat.")

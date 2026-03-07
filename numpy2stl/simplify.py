@@ -15,7 +15,7 @@ from shapely import constrained_delaunay_triangles
 
 
 
-def simplify_mesh_surfaces(vertices, faces, min_faces=3):
+def simplify_mesh_surfaces(vertices, faces, min_faces=10):
 
 		surfaces = extract_surfaces(vertices, faces, min_faces)
 

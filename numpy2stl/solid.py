@@ -108,7 +108,7 @@ def get_surfaces(vertices,faces, normals=None):
                 
     return surfaces, surface_normals
 
-def normal_to_dict(normals, decimals=5):
+def normal_to_dict(normals, decimals=3):
     """
     Groups face indices by their normal vectors.
     decimals: number of decimal places to round to (handles float jitter).
@@ -417,7 +417,7 @@ def get_open_edges_old(faces):
     
     return open_edges
 
-def get_open_edges(faces):
+def get_open_edges_old( faces):
     # 1. Create all edges (N*3, 2)
     edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
     
@@ -443,6 +443,29 @@ def get_open_edges(faces):
     mask[:-1] &= (sorted_keys[:-1] != sorted_keys[1:])
     
     # 5. Map back to original edges using the sorted index
+    return edges[idx[mask]]
+
+def get_open_edges(faces):
+    # 1. Create all directed edges (N*3, 2)
+    # This keeps the [A -> B], [B -> C], [C -> A] flow
+    edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+    
+    # 2. Create the "Symmetric Key" for finding unique pairs
+    p1 = edges.min(axis=1)
+    p2 = edges.max(axis=1)
+    max_idx = faces.max() + 1
+    edge_keys = p1.astype(np.int64) * max_idx + p2
+    
+    # 3. Sort and Mask (Your Speedup)
+    idx = np.argsort(edge_keys)
+    sorted_keys = edge_keys[idx]
+    
+    mask = np.ones(len(sorted_keys), dtype=bool)
+    mask[1:] &= (sorted_keys[1:] != sorted_keys[:-1])
+    mask[:-1] &= (sorted_keys[:-1] != sorted_keys[1:])    
+    # 4. Map back to the ORIGINAL directed edges
+    # This ensures if the face was [13, 11, 19], we return [13, 11]
+    # NOT a sorted [11, 13].
     return edges[idx[mask]]
     
 
