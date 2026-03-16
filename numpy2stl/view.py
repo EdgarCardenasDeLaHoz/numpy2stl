@@ -5,7 +5,8 @@ import mpl_toolkits.mplot3d as plt3
 
 ######################### Functions for Plotting in 3D ################################
 
-def plot_edges_3d(edges,ax=None):
+
+def plot_edges_3d(edges, ax=None):
 
     if ax is None:
         fig = plt.figure()
@@ -13,18 +14,20 @@ def plot_edges_3d(edges,ax=None):
 
     for e in edges:
         color = np.random.rand(3)
-        ax.plot3D([e[0,0],e[1,0]], [e[0,1],e[1,1]], [e[0,2],e[1,2]], color=color)
-        ax.plot3D([e[1,0]], [e[1,1]], [e[1,2]], 'o', color=color)
+        ax.plot3D([e[0, 0], e[1, 0]], [e[0, 1], e[1, 1]],
+                  [e[0, 2], e[1, 2]], color=color)
+        ax.plot3D([e[1, 0]], [e[1, 1]], [e[1, 2]], 'o', color=color)
 
-    x = edges[:,:,0].ravel()
-    y = edges[:,:,1].ravel()
-    z = edges[:,:,2].ravel()
-    
-    set_limits_3D(ax,x,y,z)
-    
+    x = edges[:, :, 0].ravel()
+    y = edges[:, :, 1].ravel()
+    z = edges[:, :, 2].ravel()
+
+    set_limits_3D(ax, x, y, z)
+
     return ax
 
-def plot_perimeters(perimeter,ax=None):
+
+def plot_perimeters(perimeter, ax=None):
 
     if ax is None:
         _, ax = plt.subplots(figsize=(8, 6))
@@ -32,12 +35,13 @@ def plot_perimeters(perimeter,ax=None):
     for p in perimeter:
         color = np.random.rand(3)
 
-        p = np.concatenate([p,[p[0]]])
-        ax.plot(p[:,0],p[:,1], color=color)
+        p = np.concatenate([p, [p[0]]])
+        ax.plot(p[:, 0], p[:, 1], color=color)
 
     return ax
 
-def plot_perimeters_3d(perimeter,ax=None):
+
+def plot_perimeters_3d(perimeter, ax=None):
 
     if ax is None:
         fig = plt.figure()
@@ -45,77 +49,91 @@ def plot_perimeters_3d(perimeter,ax=None):
 
     for p in perimeter:
         color = np.random.rand(3)
-        ax.plot3D(p[:,0],p[:,1],p[:,2], color=color)
+        ax.plot3D(p[:, 0], p[:, 1], p[:, 2], color=color)
 
-    x = perimeter[0][:,0].ravel()
-    y = perimeter[0][:,1].ravel()
-    z = perimeter[0][:,2].ravel()
+    x = perimeter[0][:, 0].ravel()
+    y = perimeter[0][:, 1].ravel()
+    z = perimeter[0][:, 2].ravel()
 
-    set_limits_3D(ax,x,y,z)
-    
+    set_limits_3D(ax, x, y, z)
+
     return ax
 
+
 def draw_3D_vertices(vertices, surfaces=None, surf_color=None, ax=None):
-    
+
     if ax is None:
         fig = plt.figure()
         ax = plt3.Axes3D(fig)
 
     if surfaces is None:
         surfaces = [range(len(vertices))]
-         
+
     for i, surf in enumerate(surfaces):
         tri = plt3.art3d.Poly3DCollection(vertices[surf])
-        
+
         if surf_color is None:
             face_color = np.random.rand(3)
         else:
             face_color = surf_color[i]
-            
+
         tri.set_facecolor(face_color)
         tri.set_edgecolor('k')
         ax.add_collection3d(tri)
 
-    x = np.concatenate(vertices[:,:,0])
-    y = np.concatenate(vertices[:,:,1])
-    z = np.concatenate(vertices[:,:,2])
+    x = np.concatenate(vertices[:, :, 0])
+    y = np.concatenate(vertices[:, :, 1])
+    z = np.concatenate(vertices[:, :, 2])
 
-    set_limits_3D(ax,x,y,z)
-    
+    set_limits_3D(ax, x, y, z)
+
     plt.show()
     return ax
 
-def set_limits_3D(ax,x,y,z):
-    
+
+def set_limits_3D(ax, x, y, z):
+
     xlim = np.array((np.amin(x)-.01, np.amax(x)+.01))
     ylim = np.array((np.amin(y)-.01, np.amax(y)+.01))
     zlim = np.array((np.amin(z)-.01, np.amax(z)+.01))
 
-    xy_dif = np.max( (np.diff(xlim) , np.diff(ylim) ))
+    xy_dif = np.max((np.diff(xlim), np.diff(ylim)))
 
-    xlim = xlim.mean() + (np.array([-.5,.5])*xy_dif)
-    ylim = ylim.mean() + (np.array([-.5,.5])*xy_dif)
+    xlim = xlim.mean() + (np.array([-.5, .5])*xy_dif)
+    ylim = ylim.mean() + (np.array([-.5, .5])*xy_dif)
 
     ax.set_xlim(*xlim)
     ax.set_ylim(*ylim)
-    ax.set_zlim(*zlim)  
+    ax.set_zlim(*zlim)
 
-import napari
+
+# Make napari import optional - it's only needed for 3D visualization
+try:
+    import napari
+    NAPARI_AVAILABLE = True
+except ImportError:
+    napari = None
+    NAPARI_AVAILABLE = False
+
 
 def render_models_napari(models):
-	print("opening - Napari")
-	v = napari.current_viewer()
-	if v is None: v = napari.Viewer()
-	v.layers.clear()
+    if not NAPARI_AVAILABLE:
+        print("napari is not installed. Install with: pip install napari[all]")
+        return None
+    print("opening - Napari")
+    v = napari.current_viewer()
+    if v is None:
+        v = napari.Viewer()
+    v.layers.clear()
 
-	for key in models:
-		print(key)
+    for key in models:
+        print(key)
 
-		vertices, faces = models[key]
-		print(len(faces) )
-		surface = (vertices,faces)
-		s = v.add_surface(surface)
-		s.wireframe.visible = len(faces) < 2000000
-		s.name = key
-		s.opacity = 1
-		s.blend_mode = "translucent"
+        vertices, faces = models[key]
+        print(len(faces))
+        surface = (vertices, faces)
+        s = v.add_surface(surface)
+        s.wireframe.visible = len(faces) < 2000000
+        s.name = key
+        s.opacity = 1
+        s.blend_mode = "translucent"
