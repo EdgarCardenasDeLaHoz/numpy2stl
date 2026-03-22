@@ -423,53 +423,6 @@ def index_edges_old(vertices):
     return uni_edges, edge_idx
 
 
-def get_open_edges_old(faces):
-
-    # Make Edges list
-    edges = faces[:, [[0, 1], [1, 2], [2, 0]]]
-    edge_list = np.reshape(edges, (edges.shape[0]*3, 2))
-    # Count edge occurance
-    edge_sorted = np.sort(edge_list, axis=1).astype(np.int64)
-    _, edge_idx, edge_counts = np.unique(
-        edge_sorted, axis=0, return_counts=True, return_inverse=True)
-
-    edge_counts_exp = edge_counts[edge_idx]
-    # Select edges that only occur once and thus open
-    open_edges = edge_list[edge_counts_exp == 1]
-    # Reconstruct Edge positions from locations
-
-    return open_edges
-
-
-def get_open_edges_old(faces):
-    # 1. Create all edges (N*3, 2)
-    edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
-
-    # 2. Sort edges so [A, B] and [B, A] are identical
-    # We do this manually to avoid np.sort overhead
-    p1 = edges.min(axis=1)
-    p2 = edges.max(axis=1)
-
-    # 3. Hash the edges into a 1D array (int64)
-    # This is the secret sauce. It makes the unique search 1D.
-    # Max index is used to ensure no collisions.
-    max_idx = faces.max() + 1
-    edge_keys = p1 * max_idx + p2
-
-    # 4. Replace np.unique with argsort (The Speedup)
-    # We find where a key is NOT equal to its neighbors in a sorted list
-    idx = np.argsort(edge_keys)
-    sorted_keys = edge_keys[idx]
-
-    # Mask elements that are different from both their left and right neighbor
-    mask = np.ones(len(sorted_keys), dtype=bool)
-    mask[1:] &= (sorted_keys[1:] != sorted_keys[:-1])
-    mask[:-1] &= (sorted_keys[:-1] != sorted_keys[1:])
-
-    # 5. Map back to original edges using the sorted index
-    return edges[idx[mask]]
-
-
 def get_open_edges(faces):
     # 1. Create all directed edges (N*3, 2)
     # This keeps the [A -> B], [B -> C], [C -> A] flow
