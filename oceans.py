@@ -240,8 +240,7 @@ def process_region(
     models = create_dem_model(im, **processing_kwargs)
 
     # Save as STL using Solid class
-    from .solid import Solid
-    from .tools import triangles_to_facets
+    from .solid import Solid, triangles_to_facets
     from .save import writeSTL
 
     stl_path = output_dir / f"{name}.stl"

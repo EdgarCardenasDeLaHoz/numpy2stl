@@ -5,7 +5,6 @@ from shapely import constrained_delaunay_triangles
 from shapely.ops import triangulate, unary_union, polygonize, polygonize, orient
 from shapely.geometry import MultiLineString, Polygon, MultiPolygon
 
-from city2stl.create import triangulate_prism
 from .solid import vertices_to_index
 from .generate import perimeter_to_walls
 from .simplify import get_open_edges
