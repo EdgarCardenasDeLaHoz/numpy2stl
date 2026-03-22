@@ -12,7 +12,7 @@ import os
 import numpy as np
 
 
-def numpy2stl(A, mask_val=None, solid=True, floor_val=None, **kwargs):
+def array_to_mesh(A, mask_val=None, solid=True, floor_val=None, **kwargs):
     """
     Convert a 2-D elevation array into a (vertices, faces) mesh.
 

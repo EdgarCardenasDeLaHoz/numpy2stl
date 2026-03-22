@@ -7,7 +7,7 @@ into 3D terrain models, extracted and refactored from the Oceans.ipynb notebook.
 
 from .solid import triangles_to_facets
 from .save import writeSTL
-from .generate import numpy2stl
+from .generate import array_to_mesh
 from .tools import resize_max, rescale
 import numpy as np
 import cv2
@@ -191,7 +191,7 @@ def create_dem_model(
         pass
 
     # Convert to STL
-    vertices, faces = numpy2stl(im, **kwargs)
+    vertices, faces = array_to_mesh(im, **kwargs)
 
     models = [{
         'vertices': vertices,
@@ -279,7 +279,7 @@ def savefile(
         np.save(str(filepath), im)
     elif format.lower() == 'stl':
         filepath = out_dir / f"{name}.stl"
-        vertices, faces = numpy2stl(im)
+        vertices, faces = array_to_mesh(im)
         triangles = vertices[faces]
         facets = triangles_to_facets(triangles)
         writeSTL(facets, str(filepath))
