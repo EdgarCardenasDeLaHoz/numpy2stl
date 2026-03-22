@@ -5,7 +5,7 @@ import scipy
 import triangle as tr
 import matplotlib.pyplot as plt
 
-from numpy2stl.numpy2stl import get_open_edges, get_ordered_perimeter, simplify_surface, get_surfaces
+from .solid import get_open_edges, get_ordered_perimeter, simplify_surface, get_surfaces
 
 import numpy as np
 import shapely

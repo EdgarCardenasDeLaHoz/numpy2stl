@@ -6,10 +6,10 @@ from shapely.ops import triangulate, unary_union, polygonize, polygonize, orient
 from shapely.geometry import MultiLineString, Polygon, MultiPolygon
 
 from city2stl.create import triangulate_prism
-from numpy2stl.numpy2stl import vertices_to_index
-from numpy2stl.numpy2stl.generate import perimeter_to_walls
-from numpy2stl.numpy2stl.simplify import  get_open_edges
-from numpy2stl.numpy2stl import solid
+from .solid import vertices_to_index
+from .generate import perimeter_to_walls
+from .simplify import get_open_edges
+from . import solid
 
 
 def make_base_border(width, b, m, base_n, height=1, offset_dist=5):

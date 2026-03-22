@@ -12,17 +12,31 @@ import os
 import numpy as np
 
 
-def numpy2stl(A, mask_val=None, solid=True, **kwargs):
+def numpy2stl(A, mask_val=None, solid=True, floor_val=None, **kwargs):
     """
-    Reads a numpy array, and list of facets
+    Convert a 2-D elevation array into a (vertices, faces) mesh.
 
-    Inputs:
-     A (ndarray) - an 'm' by 'n' 2D numpy array
-    Optional input:
-     mask_val (float) - any element of the inputted array that is less than this value will not be included in the mesh.
-     solid (bool): sets whether to create a solid geometry (with sides and a bottom) or not.
+    Parameters
+    ----------
+    A : ndarray, shape (m, n)
+        2-D elevation array.
+    mask_val : float, optional
+        Elements ≤ this value are excluded from the mesh surface.
+        Defaults to ``A.min() - 1`` (include everything).
+    solid : bool, optional
+        If True (default) add side walls and a flat bottom cap, producing
+        a watertight solid suitable for 3-D printing.
+    floor_val : float, optional
+        Z-coordinate of the bottom face and side walls.
+        Defaults to ``mask_val`` so the floor sits at the mask level.
+        Pass an explicit value (e.g. ``floor_val=0``) to fix the base
+        height independently of the mask — the recommended approach in
+        notebooks when you want the base at a known elevation.
 
-    Returns: vertices, faces
+    Returns
+    -------
+    vertices : ndarray, shape (N, 3)
+    faces    : ndarray of int, shape (M, 3)
     """
     # Defensive: allow None or empty arrays and return empty mesh
     if A is None:
@@ -37,6 +51,9 @@ def numpy2stl(A, mask_val=None, solid=True, **kwargs):
     if mask_val is None:
         mask_val = A.min() - 1.
     min_val = mask_val
+    # floor_val sets the z of the bottom cap and walls independently of mask_val
+    if floor_val is None:
+        floor_val = min_val
 
     print("Creating top...", end="")
     top_vertices, top_faces = array2faces(A, mask_val=mask_val)
@@ -52,12 +69,12 @@ def numpy2stl(A, mask_val=None, solid=True, **kwargs):
         edges = get_open_edges(top_faces)
         perimeters = get_ordered_perimeter(top_vertices, edges)
         wall_triangles = perimeter_to_walls(
-            top_vertices, perimeters, floor_val=min_val)
+            top_vertices, perimeters, floor_val=floor_val)
 
         # Bottom
         print("Creating bottom...", )
         bottom_vertices = top_vertices.copy()
-        bottom_vertices[:, 2] = min_val
+        bottom_vertices[:, 2] = floor_val
         _, bottom_faces = simplify_surface(bottom_vertices, perimeters)
         # flip the order to make it a solid surface
         bottom_faces = bottom_faces[:, [1, 0, 2]]

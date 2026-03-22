@@ -110,7 +110,8 @@ def write3MF(file_name, models):
         )
         zf.writestr('[Content_Types].xml', content_types)
 
-    print(f"✅ Successfully saved {len(models)} objects to {file_name}")
+    import logging as _logging
+    _logging.getLogger(__name__).info("Successfully saved %d objects to %s", len(models), file_name)
 
 def writeOBJ(file_name, models):
     """
@@ -137,4 +138,5 @@ def writeOBJ(file_name, models):
             # Update offset for the next object
             v_offset += len(vertices)
 
-    print(f"✅ Successfully saved {len(models)} objects to {file_name}")
+    import logging as _logging
+    _logging.getLogger(__name__).info("Successfully saved %d objects to %s", len(models), file_name)
