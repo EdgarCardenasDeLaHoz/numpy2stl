@@ -1,0 +1,577 @@
+"""Building-mask segmentation: terrain residual, thresholding, edges.
+
+Part of the align/ subpackage (split from the former align.py).
+"""
+from __future__ import annotations
+
+import logging
+import time
+from math import atan2, degrees, sqrt
+
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    HAS_CV2 = False
+
+try:
+    from scipy.ndimage import sobel, gaussian_filter
+    HAS_SCIPY = True
+except ImportError:
+    sobel = gaussian_filter = None
+    HAS_SCIPY = False
+
+def _base_plate_threshold(values: np.ndarray) -> float:
+    """
+    Otsu's threshold to separate base plate / terrain from buildings.
+
+    Otsu's method maximises the inter-class variance between the background
+    (terrain, roads, base plate — the dominant low-height pixels) and the
+    foreground (buildings — the sparse, taller pixels).  It needs no hard-coded
+    fraction of the height range, so it works equally well for flat-plate STL
+    models and terrain-inclusive city models where terrain variation is large.
+
+    Falls back to mode + 1 bin width for degenerate (flat) distributions.
+    """
+    if values.size == 0:
+        return 0.0
+    lo, hi = float(values.min()), float(values.max())
+    if hi <= lo:
+        return lo
+
+    bins = 256
+    hist, edges = np.histogram(values, bins=bins, range=(lo, hi))
+    total = float(hist.sum())
+    if total == 0:
+        return lo
+
+    prob   = hist.astype(np.float64) / total
+    bin_c  = (edges[:-1] + edges[1:]) * 0.5
+    mu_tot = float(np.dot(prob, bin_c))
+
+    best_var, best_thresh = -1.0, lo
+    w0 = m0 = 0.0
+    for i in range(bins - 1):
+        w0 += prob[i]
+        m0 += prob[i] * bin_c[i]
+        if w0 <= 0.0 or w0 >= 1.0:
+            continue
+        w1 = 1.0 - w0
+        m1 = (mu_tot - m0) / w1
+        var_b = w0 * w1 * (m0 / w0 - m1) ** 2
+        if var_b > best_var:
+            best_var = var_b
+            best_thresh = float(edges[i + 1])
+
+    # Guard: if Otsu returns a threshold below 3% of the range the distribution
+    # has no bimodal structure — fall back to histogram mode + 1 bin width.
+    if best_thresh < lo + (hi - lo) * 0.03:
+        hist64, edges64 = np.histogram(values, bins=64, range=(lo, hi))
+        mb = int(np.argmax(hist64))
+        best_thresh = float(edges64[mb + 1]) + float(edges64[1] - edges64[0])
+
+    return best_thresh
+
+
+def terrain_residual(
+    heightmap: np.ndarray,
+    cell_size_m: float | None = None,
+    building_max_m: float = 80.0,
+    blur_m: float = 6.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Estimate height-above-local-terrain via a morphological white top-hat.
+
+    The STL heightmap stores *absolute* elevation (terrain + structures). Buildings
+    must be compared as height-above-ground, so we estimate the terrain by
+    morphological OPENING (erode→dilate) with a kernel wider than the largest
+    building footprint — opening removes everything narrower than the kernel
+    (buildings, trees) and leaves the smooth terrain surface. The residual
+    (raw − terrain) is the height each cell rises above its local ground.
+
+    Resolution independence
+    -----------------------
+    The kernel and blur are sized in **metres**, not pixels.  Given
+    ``cell_size_m`` (metres per pixel), a fixed physical kernel spans
+    ``building_max_m / cell_size_m`` pixels, so the terrain estimate — and
+    therefore the recovered building height — is consistent across grid
+    resolutions.  When ``cell_size_m`` is None we fall back to the legacy
+    pixel-based sizing (``min(shape)//4`` kernel, σ=1.5 px) for callers that
+    have no scale information.
+
+    Returns
+    -------
+    (residual, valid) : float64 residual array (NaN-filled cells set to 0 in
+        the residual) and the bool mask of originally-valid (non-NaN) cells.
+    """
+    arr = heightmap.astype(np.float64)
+    valid = ~np.isnan(arr)
+    residual = np.zeros_like(arr)
+    if not valid.any():
+        return residual, valid
+
+    if not HAS_CV2:
+        # No morphology available — residual = height above global base plate.
+        base = _base_plate_threshold(arr[valid])
+        residual[valid] = np.maximum(arr[valid] - base, 0.0)
+        return residual, valid
+
+    arr_f32 = arr.astype(np.float32)
+    arr_f32[~valid] = float(np.median(arr[valid]))
+
+    if cell_size_m is not None and cell_size_m > 0:
+        sigma_px = max(1.0, blur_m / cell_size_m)
+        ksize = int(building_max_m / cell_size_m) | 1   # odd, ~constant metres
+        ksize = max(31, min(ksize, max(3, min(arr_f32.shape) - 1)))
+    else:
+        sigma_px = 1.5
+        ksize = max(31, min(arr_f32.shape) // 4) | 1     # legacy pixel sizing
+
+    blur_k = max(3, int(sigma_px * 3) | 1)
+    arr_f32 = cv2.GaussianBlur(arr_f32, (blur_k, blur_k), sigma_px)
+    kernel = np.ones((ksize, ksize), np.uint8)
+    terrain = cv2.morphologyEx(arr_f32, cv2.MORPH_OPEN, kernel)
+    res = (arr_f32 - terrain).astype(np.float64)
+    residual[valid] = res[valid]
+    logger.debug(
+        "terrain_residual: cell_size_m=%s  ksize=%dpx (%.0fm)  sigma=%.1fpx",
+        f"{cell_size_m:.3f}" if cell_size_m else "None",
+        ksize, ksize * cell_size_m if cell_size_m else float("nan"), sigma_px,
+    )
+    return residual, valid
+
+
+def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle") -> tuple[float, str]:
+    """
+    Pick a ground/building threshold on the terrain-residual distribution
+    (a dominant near-zero ground peak + a building tail) WITHOUT assuming a
+    coverage fraction.
+
+    method:
+      'triangle'  — skimage threshold_triangle (built for one peak + a tail).
+      'multiotsu' — 3-class multi-Otsu; take the lower (ground/low) boundary.
+      'pNN'       — the NNth percentile (e.g. 'p50' = legacy median).
+      <float str> — explicit residual value.
+
+    Returns (threshold, label).  Falls back to p50 when the result is degenerate
+    (mask would be <2% or >90% of valid cells).
+    """
+    p50 = float(np.percentile(res_valid, 50))
+    n = res_valid.size
+    def _cov(t):  # fraction of valid cells kept
+        return float((res_valid > t).mean())
+
+    thr, label = p50, "p50"
+    try:
+        m = str(method).lower()
+        if m == "triangle":
+            from skimage.filters import threshold_triangle
+            thr, label = float(threshold_triangle(res_valid)), "triangle"
+        elif m == "multiotsu":
+            from skimage.filters import threshold_multiotsu
+            thr = float(threshold_multiotsu(res_valid, classes=3)[0]); label = "multiotsu"
+        elif m.startswith("p") and m[1:].replace(".", "", 1).isdigit():
+            pct = float(m[1:]); thr, label = float(np.percentile(res_valid, pct)), m
+        else:
+            thr, label = float(m), "fixed"
+    except Exception:
+        thr, label = p50, "p50(fallback)"
+
+    cov = _cov(thr)
+    if not (0.02 <= cov <= 0.90):   # degenerate — revert to the robust median split
+        thr, label = p50, f"p50(guard:{label}cov={cov:.2f})"
+    return thr, label
+
+
+def building_mask(
+    heightmap: np.ndarray,
+    source: str = "stl",
+    threshold: float | None = None,
+    min_blob_px: int = -1,
+    target_coverage: float | None = None,
+    cell_size_m: float | None = None,
+    segment_features: bool = False,
+    threshold_method: str = "p50",
+    fill_holes_px: int | None = 0,
+    split_watershed: bool = False,
+) -> np.ndarray:
+    """
+    Convert a heightmap into a binary building-presence mask.
+
+    Building *footprints* register far more reliably than continuous heights:
+    both datasets agree on "is there a building here?" even when they disagree
+    on exact height.  This is the robust coarse signal for registration when
+    height data is noisy or incomplete.
+
+    Parameters
+    ----------
+    heightmap : (rows, cols) float64
+        STL projection (NaN or ~0 = ground) or OSM raster (NaN = no building).
+    source : {'stl', 'osm'}
+        'osm' — a building is any non-NaN cell (a footprint was rasterized).
+        'stl' — a building is any cell whose height rises meaningfully above
+                the ground/base plane.
+    threshold : float, optional
+        Height above which an STL cell counts as a building.  Default: auto.
+        When None, the STL path uses a morphological top-hat to estimate
+        height-above-local-terrain, then applies Otsu's threshold to the
+        residual.  This correctly handles terrain-inclusive models where
+        absolute height is dominated by topography rather than buildings.
+    min_blob_px : int
+        Remove connected components smaller than this (speckle).
+
+    Returns
+    -------
+    bool ndarray, same shape — True where a building is present.
+    """
+    residual = None  # height-above-terrain; populated on the STL top-hat path
+    if source == "osm":
+        mask = ~np.isnan(heightmap)
+    else:
+        arr = heightmap.copy().astype(np.float64)
+        valid = ~np.isnan(arr)
+        if threshold is None:
+            if not valid.any():
+                return np.zeros(heightmap.shape, dtype=bool)
+            if HAS_CV2:
+                # Height above local terrain via morphological top-hat.  Kernel
+                # sized in metres when cell_size_m is known (resolution-independent),
+                # else legacy pixel sizing.  See terrain_residual() for rationale.
+                #
+                # Threshold the residual at p24 (empirically optimal at 512): only
+                # cells rising meaningfully above local ground survive.  Coverage
+                # matching is NOT used by default — forcing OSM coverage pulls in
+                # terrain features to make up the numbers.
+                residual, valid = terrain_residual(arr, cell_size_m=cell_size_m)
+                res_valid = residual[valid]
+                if target_coverage is not None:
+                    frac_of_valid = float(np.clip(
+                        target_coverage * arr.size / valid.sum(), 0.0, 1.0))
+                    pct = max(0.0, (1.0 - frac_of_valid) * 100.0)
+                    threshold = float(np.percentile(res_valid, pct))
+                    thr_label = f"target_cov_p{pct:.0f}"
+                else:
+                    # Adaptive ground/building split on the residual — no fixed
+                    # coverage assumption.  See _adaptive_residual_threshold.
+                    threshold, thr_label = _adaptive_residual_threshold(
+                        res_valid, method=threshold_method)
+                mask = valid & (residual > threshold)
+                logger.debug(
+                    "STL building_mask: thr=%.4f (%s)  mask=%.1f%%  (p50=%.4f p90=%.4f)",
+                    threshold, thr_label, 100.0 * mask.sum() / mask.size,
+                    float(np.percentile(res_valid, 50)),
+                    float(np.percentile(res_valid, 90)),
+                )
+            else:
+                threshold = _base_plate_threshold(arr[valid])
+                mask = valid & (arr > threshold)
+        else:
+            mask = valid & (arr > threshold)
+
+    # Adaptive min blob: at 512-res 1px ≈ 4.3m; require ≥ ~200m² building footprint
+    # (≈ 11px). Scale with image area so it stays meaningful at other resolutions.
+    if min_blob_px < 0:
+        min_blob_px = max(10, heightmap.size // (512 * 512 // 25))
+
+    # Clean speckle (STL only — OSM is clean vector data, no morphological cleanup needed):
+    #   1. Close (dilate→erode) with 3×3 to merge adjacent building pixels into
+    #      solid blocks before size-filtering (avoids breaking real buildings apart).
+    #   2. Open (erode→dilate) with 3×3 to remove isolated noise dots.
+    #   3. Remove connected components smaller than min_blob_px.
+    #   4. (STL only) Filter textured components (trees) by height variance and gradient.
+    if HAS_CV2 and min_blob_px > 0:
+        m8 = mask.astype(np.uint8)
+        kernel = np.ones((3, 3), np.uint8)
+        if source != "osm":
+            m8 = cv2.morphologyEx(m8, cv2.MORPH_CLOSE, kernel)
+        m8 = cv2.morphologyEx(m8, cv2.MORPH_OPEN, kernel)
+        n, labels, stats, _ = cv2.connectedComponentsWithStats(m8, connectivity=8)
+        keep = np.zeros_like(m8, dtype=bool)
+
+        # Texture + geometry segmentation: classify each large component as
+        # building (smooth, planar roof) vs non-building (rough, non-planar — e.g.
+        # tree canopy).  Only runs for STL when explicitly requested and a residual
+        # is available; small components and the no-residual path keep everything.
+        do_seg = (segment_features and source != "osm" and residual is not None)
+        # A lone tree / tree-clump is a SMALL, isolated, rough, non-planar blob.
+        # Large components are buildings or merged downtown blocks (which merge
+        # into one giant component in dense cores) and are always kept — texture
+        # can't distinguish a city block, and OSM vegetation masking handles parks.
+        # tree_max_px ≈ a ~30 m clump; sized in metres when cell_size_m is known.
+        if cell_size_m and cell_size_m > 0:
+            tree_max_px = int((30.0 / cell_size_m) ** 2)
+        else:
+            tree_max_px = max(min_blob_px * 4, 400)
+
+        candidate = []          # (label_id, roughness, planarity, area) — small blobs only
+        for i in range(1, n):
+            area = int(stats[i, cv2.CC_STAT_AREA])
+            if area < min_blob_px:
+                keep[labels == i] = True       # tiny speckle kept (legacy behaviour)
+                continue
+            if not do_seg or area > tree_max_px:
+                keep[labels == i] = True       # large structure / no segmentation → keep
+                continue
+            rough, planar = _component_features(residual, labels == i)
+            candidate.append((i, rough, planar, area))
+
+        if do_seg and len(candidate) >= 4:
+            roughs = np.array([c[1] for c in candidate])
+            planars = np.array([c[2] for c in candidate])
+            # A tree is rough AND non-planar; reject only small blobs in the upper
+            # tail of BOTH features so the building population is preserved.
+            r_thr = float(np.percentile(roughs, 70))
+            p_thr = float(np.percentile(planars, 70))
+            rejected = 0
+            for (i, rough, planar, area) in candidate:
+                if rough > r_thr and planar > p_thr:
+                    rejected += 1               # rough AND non-planar small blob → tree
+                else:
+                    keep[labels == i] = True
+            logger.info(
+                "Feature segmentation: examined %d small blobs (<%dpx), "
+                "rejected %d as trees (rough>%.3f & non-planar>%.3f).",
+                len(candidate), tree_max_px, rejected, r_thr, p_thr)
+        else:
+            for (i, *_rest) in candidate:        # too few to threshold reliably
+                keep[labels == i] = True
+
+        # Denoise: fill small INTERIOR holes (gaps inside footprints from threshold
+        # noise / mesh dropouts).  A hole is a background component that does not
+        # touch the image border; fill those below fill_holes_px.  Large genuine
+        # gaps (courtyards, plazas, streets reaching the border) are preserved.
+        if fill_holes_px is None:
+            fill_holes_px = min_blob_px
+        if fill_holes_px and fill_holes_px > 0:
+            inv = (~keep).astype(np.uint8)
+            nb, blab, bstats, _ = cv2.connectedComponentsWithStats(inv, connectivity=8)
+            h_, w_ = keep.shape
+            filled = 0
+            for j in range(1, nb):
+                x0 = bstats[j, cv2.CC_STAT_LEFT]; y0 = bstats[j, cv2.CC_STAT_TOP]
+                bw = bstats[j, cv2.CC_STAT_WIDTH]; bh = bstats[j, cv2.CC_STAT_HEIGHT]
+                area = int(bstats[j, cv2.CC_STAT_AREA])
+                touches_border = (x0 == 0 or y0 == 0 or x0 + bw >= w_ or y0 + bh >= h_)
+                if not touches_border and area < fill_holes_px:
+                    keep[blab == j] = True
+                    filled += 1
+            if filled:
+                logger.debug("building_mask: filled %d small holes (<%dpx)", filled, fill_holes_px)
+
+        mask = keep
+
+    # Separate merged building blobs (downtown blocks + the street between them)
+    # so each footprint vectorizes individually.  STL only; OSM is already split
+    # vector data.  Off by default to keep registration masks stable.
+    if split_watershed and source != "osm":
+        mask = split_touching_buildings(mask, cell_size_m=cell_size_m)
+
+    return mask
+
+
+def split_touching_buildings(
+    mask: np.ndarray,
+    cell_size_m: float | None = None,
+    min_separation_m: float = 25.0,
+    min_floor_px: int = 6,
+) -> np.ndarray:
+    """Carve 1-px gaps between merged building footprints (watershed split).
+
+    A single global threshold fuses adjacent downtown buildings (and the street
+    between them) into one giant blob, so they vectorize as a single ragged
+    polygon.  This separates them: a distance transform of the mask peaks at each
+    building centre; watershed from those peak markers partitions the blob along
+    its narrow waists (the streets), and the watershed ridge lines are set to
+    background — so `vectorize_buildings` then traces each building separately.
+
+    The footprint area only shrinks by the 1-px ridge lines, so overlap with the
+    original is essentially preserved.  Falls back to the input mask if skimage
+    is unavailable or the mask is trivial.
+
+    Parameters
+    ----------
+    min_separation_m : minimum spacing between building-centre markers (metres
+        when ``cell_size_m`` is known, else taken as pixels).  Prevents one
+        building from splitting into several.
+    """
+    m = np.asarray(mask) > 0
+    if not m.any():
+        return m
+    try:
+        from scipy import ndimage as ndi
+        from skimage.morphology import h_maxima
+        from skimage.segmentation import watershed, find_boundaries
+    except Exception:
+        return m
+
+    if cell_size_m and cell_size_m > 0:
+        min_dist = max(min_floor_px, int(round(min_separation_m / cell_size_m)))
+    else:
+        min_dist = max(min_floor_px, int(round(min_separation_m)))
+
+    distance = ndi.distance_transform_edt(m)
+    # Seed one marker per genuine building CORE using the H-maxima transform: it
+    # keeps only maxima whose "depth" above the surrounding saddle is ≥ h, merging
+    # the pixel-scale ripples of a single large rooftop into one marker (avoids the
+    # 129→1025 shatter) while still separating two buildings joined at a thin neck
+    # (their cores are deep maxima separated by a low-distance waist).  h is set to
+    # half the min building separation, in distance-transform (pixel) units.
+    h = max(2.0, 0.5 * min_dist)
+    seeds = h_maxima(distance, h)
+    markers, n_markers = ndi.label(seeds)
+    if n_markers < 2:
+        return m   # single core → nothing to split
+    labels = watershed(-distance, markers, mask=m)
+    ridges = find_boundaries(labels, mode="outer") & m
+    out = m & ~ridges
+    _, n_before = ndi.label(m)
+    _, n_after = ndi.label(out)
+    coords = np.argwhere(seeds)   # for logging only
+    logger.info("split_touching_buildings: %d markers, components %d -> %d (min_sep=%dpx)",
+                len(coords), int(n_before), int(n_after), min_dist)
+    return out
+
+
+def _component_features(residual: np.ndarray, comp: np.ndarray) -> tuple[float, float]:
+    """
+    Two discriminative features for a connected component, computed on the
+    height-above-terrain residual (no topography confound):
+
+    - roughness : std-dev of residual within the component.  Tree canopies vary
+      cell-to-cell (high); building roofs are flat or smoothly sloped (low).
+    - planarity : RMS distance to a least-squares plane fit through the
+      component's (x, y, residual) points, normalised by the residual scale.
+      Roofs lie near a plane (low); canopies do not (high).
+    """
+    ys, xs = np.where(comp)
+    z = residual[ys, xs].astype(np.float64)
+    if z.size < 4:
+        return 0.0, 0.0
+    rough = float(np.std(z))
+    # Plane fit z ≈ a*x + b*y + c
+    A = np.column_stack([xs.astype(np.float64), ys.astype(np.float64), np.ones(z.size)])
+    try:
+        coef, *_ = np.linalg.lstsq(A, z, rcond=None)
+        resid = z - A @ coef
+        scale = float(np.median(np.abs(z - np.median(z)))) + 1e-6
+        planar = float(np.sqrt(np.mean(resid ** 2)) / scale)
+    except np.linalg.LinAlgError:
+        planar = 0.0
+    return rough, planar
+
+
+def building_edges(heightmap: np.ndarray, source: str = "stl", **kwargs) -> np.ndarray:
+    """
+    Binary edge (footprint outline) mask — the registration signal of choice.
+
+    Filled building masks are dense (often >50% of the frame), so two of them
+    overlap heavily regardless of alignment: high IoU there is largely a
+    blob-overlap artefact (random-chance IoU ~0.2–0.45). The *outlines* of the
+    footprints are sparse and distinctive — building edges and street boundaries
+    coincide between datasets only when truly aligned. Empirically the edge mask
+    registers 7x above its random baseline vs ~2.5x for filled masks.
+
+    Returns
+    -------
+    bool ndarray — True on the 1-px boundary of each building footprint.
+    """
+    mask = building_mask(heightmap, source=source, **kwargs).astype(np.uint8)
+    if not HAS_CV2:
+        # numpy gradient fallback
+        gx = np.abs(np.diff(mask, axis=1, prepend=0))
+        gy = np.abs(np.diff(mask, axis=0, prepend=0))
+        return ((gx + gy) > 0)
+    eroded = cv2.erode(mask, np.ones((3, 3), np.uint8))
+    return (mask - eroded).astype(bool)
+
+
+def _regularize_polygon(poly: np.ndarray, max_snap_px: float = 3.0) -> np.ndarray:
+    """Snap a footprint polygon to its dominant orthogonal orientation.
+
+    Real building footprints are mostly rectilinear; the raster contour staircase
+    leaves edges a few degrees off and a pixel or two ragged.  We find the
+    dominant edge direction (length-weighted), rotate the polygon so that
+    direction is axis-aligned, snap each vertex that moves less than
+    ``max_snap_px`` onto its neighbour's x/y (collapsing near-axis edges to exactly
+    axis-aligned), then rotate back.  The displacement cap guarantees the
+    footprint can't move more than a couple of pixels, so overlap is preserved.
+    """
+    if len(poly) < 4:
+        return poly
+    p = poly.astype(np.float64)
+    edges = np.roll(p, -1, axis=0) - p
+    lengths = np.hypot(edges[:, 0], edges[:, 1])
+    if lengths.sum() <= 0:
+        return poly
+    # Dominant orientation mod 90°.  Orientations are 90°-periodic, so a plain
+    # arithmetic mean of folded angles is wrong (it averages 5° and 85° to 45°).
+    # Use the length-weighted CIRCULAR mean of 4×angle (period 90° → 360°).
+    raw = np.arctan2(edges[:, 1], edges[:, 0])
+    z = np.sum(lengths * np.exp(1j * 4.0 * raw))
+    theta = (np.angle(z) / 4.0) % (np.pi / 2.0)
+    c, s = np.cos(-theta), np.sin(-theta)
+    R = np.array([[c, -s], [s, c]])
+    q = p @ R.T
+    # Snap small edge offsets onto the axis (rectilinearize).
+    for i in range(len(q)):
+        j = (i + 1) % len(q)
+        dx, dy = q[j, 0] - q[i, 0], q[j, 1] - q[i, 1]
+        if abs(dx) <= max_snap_px:      # near-vertical edge → equalise x
+            q[j, 0] = q[i, 0]
+        elif abs(dy) <= max_snap_px:    # near-horizontal edge → equalise y
+            q[j, 1] = q[i, 1]
+    out = q @ np.linalg.inv(R).T
+    # Guard: cap total displacement so overlap is preserved.
+    disp = np.hypot(*(out - p).T)
+    if np.max(disp) > 2 * max_snap_px + 1.0:
+        return poly
+    return np.rint(out).astype(np.int32)
+
+
+def vectorize_buildings(mask, simplify_frac: float = 0.02, min_area_px: int = 20,
+                        regularize: bool = False, max_snap_px: float = 3.0):
+    """
+    Convert a binary building-footprint mask into simplified VECTOR polygons.
+
+    The building outlines (the edges of the segmented regions) are traced and the
+    resulting connectivity is simplified into a small set of vertices — the
+    polygon form OSM building footprints natively use, so STL footprints can be
+    compared / exported in the same representation.
+
+    Method: trace each footprint's outer contour (cv2.findContours) and simplify
+    it with Douglas–Peucker (cv2.approxPolyDP), tolerance = ``simplify_frac`` of
+    the contour perimeter.  This collapses the ragged staircase boundary into a
+    few straight edges (a rectangle becomes ~4 points).
+
+    Parameters
+    ----------
+    mask         : 2-D bool / 0-1 array — building presence.
+    simplify_frac: Douglas–Peucker epsilon as a fraction of each contour's
+                   perimeter (larger = fewer vertices).
+    min_area_px  : drop footprints smaller than this (speckle).
+
+    Returns
+    -------
+    list[np.ndarray] : each (K, 2) int32 array of (x, y) polygon vertices.
+    """
+    if not HAS_CV2:
+        return []
+    m = (np.asarray(mask) > 0).astype(np.uint8)
+    contours, _ = cv2.findContours(m, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    polys = []
+    for c in contours:
+        if cv2.contourArea(c) < min_area_px:
+            continue
+        eps = simplify_frac * cv2.arcLength(c, True)
+        approx = cv2.approxPolyDP(c, eps, True)
+        if len(approx) >= 3:
+            poly = approx.reshape(-1, 2).astype(np.int32)
+            if regularize:
+                poly = _regularize_polygon(poly, max_snap_px=max_snap_px)
+            polys.append(poly)
+    return polys

@@ -1,0 +1,306 @@
+from __future__ import annotations
+
+import logging
+from itertools import product
+
+import numpy as np
+
+from .polygon import get_ordered_perimeter
+from .solid import get_open_edges, simplify_surface, vertices_to_index
+
+# Get logger for this module
+logger = logging.getLogger(__name__)
+
+__all__ = [
+    "array_to_mesh",
+    "array2faces",
+    "polygon_to_complex",
+    "polygon_to_prism",
+    "perimeter_to_walls",
+]
+
+############################# convert array to facet list ##########################################
+
+
+
+def array_to_mesh(
+    A: np.ndarray | None,
+    mask_val: float | None = None,
+    solid: bool = True,
+    floor_val: float | None = None,
+    **kwargs,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Convert a 2-D elevation array into a (vertices, faces) mesh.
+
+    Parameters
+    ----------
+    A : ndarray, shape (m, n)
+        2-D elevation array.
+    mask_val : float, optional
+        Elements ≤ this value are excluded from the mesh surface.
+        Defaults to ``A.min() - 1`` (include everything).
+    solid : bool, optional
+        If True (default) add side walls and a flat bottom cap, producing
+        a watertight solid suitable for 3-D printing.
+    floor_val : float, optional
+        Z-coordinate of the bottom face and side walls.
+        Defaults to ``mask_val`` so the floor sits at the mask level.
+        Pass an explicit value (e.g. ``floor_val=0``) to fix the base
+        height independently of the mask — the recommended approach in
+        notebooks when you want the base at a known elevation.
+
+    Returns
+    -------
+    vertices : ndarray, shape (N, 3)
+        3D vertex coordinates (x, y, z)
+    faces    : ndarray of int, shape (M, 3)
+        Triangle face indices into vertices array
+
+    Examples
+    --------
+    Generate a simple pyramid from an elevation array:
+
+    >>> import numpy as np
+    >>> from numpy2stl import array_to_mesh, writeSTL, triangles_to_facets
+    >>> x, y = np.meshgrid(range(10), range(10))
+    >>> pyramid = 5 - np.abs(x - 5) - np.abs(y - 5)
+    >>> vertices, faces = array_to_mesh(pyramid, solid=True)
+    >>> triangles = vertices[faces]
+    >>> facets = triangles_to_facets(triangles)
+    >>> writeSTL(facets, "pyramid.stl")
+
+    Create a mesh with a masked ocean region:
+
+    >>> elevation = np.random.rand(50, 50) * 100
+    >>> elevation[20:30, 20:30] = -10  # Ocean region
+    >>> vertices, faces = array_to_mesh(elevation, mask_val=0, floor_val=0)
+    """
+    # Defensive: allow None or empty arrays and return empty mesh
+    if A is None:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=int)
+    if not isinstance(A, np.ndarray):
+        raise TypeError("Input A must be a numpy array")
+    if A.ndim != 2:
+        raise ValueError("Input A must be a 2D array")
+    if A.size == 0:
+        return np.zeros((0, 3)), np.zeros((0, 3), dtype=int)
+
+    if mask_val is None:
+        mask_val = A.min() - 1.0
+    min_val = mask_val
+    # floor_val sets the z of the bottom cap and walls independently of mask_val
+    if floor_val is None:
+        floor_val = min_val
+
+    logger.debug("Creating top surface...")
+    top_vertices, top_faces = array2faces(A, mask_val=mask_val)
+    top_triangles = top_vertices[top_faces]
+
+    # If no faces were generated (e.g., all values masked), return vertices+faces
+    if top_faces is None or getattr(top_faces, "size", 0) == 0:
+        return top_vertices, top_faces
+
+    if solid:
+        # Walls
+        logger.debug("Creating walls...")
+        edges = get_open_edges(top_faces)
+        perimeters = get_ordered_perimeter(top_vertices, edges)
+        wall_triangles = perimeter_to_walls(top_vertices, perimeters, floor_val=floor_val)
+
+        # Bottom
+        logger.debug("Creating bottom cap...")
+        bottom_vertices = top_vertices.copy()
+        bottom_vertices[:, 2] = floor_val
+        _, bottom_faces = simplify_surface(bottom_vertices, perimeters)
+        # flip the order to make it a solid surface
+        bottom_faces = bottom_faces[:, [1, 0, 2]]
+        bottom_triangles = bottom_vertices[bottom_faces]
+
+        all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
+
+    else:
+        all_triangles = top_triangles
+
+    # Convert triangle facets into indexed vertices+faces for downstream
+    # consumers that expect (vertices, faces) tuple.
+    try:
+        verts, faces_idx = vertices_to_index(all_triangles)
+        logger.info(f"Generated mesh with {len(verts)} vertices, {len(faces_idx)} faces")
+        return verts, faces_idx
+    except Exception:
+        # Fallback: return raw triangles if indexing fails
+        logger.warning("Failed to index vertices, returning raw triangles")
+        return all_triangles
+
+
+def array2faces__(A, mask_val=0):
+
+    m, n = A.shape
+    xv, yv = np.meshgrid(range(n), range(m))
+    vertices = np.stack([xv.ravel(), yv.ravel(), A.ravel()]).T
+
+    idxs = np.array(range(m * n)).reshape(m, n)
+
+    faces = []
+
+    masked = A > mask_val
+    for i, k in product(range(m - 1), range(n - 1)):
+
+        if (masked[i, k]) and (masked[i, k + 1]) and (masked[i + 1, k]) and (masked[i + 1, k + 1]):
+
+            faces.append([idxs[i, k], idxs[i, k + 1], idxs[i + 1, k + 1]])
+            faces.append([idxs[i, k], idxs[i + 1, k + 1], idxs[i + 1, k]])
+
+    faces = np.array(faces)
+
+    return vertices, faces
+
+
+def array2faces(A, mask_val=0):
+    m, n = A.shape
+    xv, yv = np.meshgrid(range(n), range(m))
+    vertices = np.stack([xv.ravel(), yv.ravel(), A.ravel()]).T
+
+    idxs = np.array(range(m * n)).reshape(m, n)
+
+    masked = A > mask_val
+
+    tl = idxs[:-1, :-1].ravel()
+    tr = idxs[:-1, 1:].ravel()
+    bl = idxs[1:, :-1].ravel()
+    br = idxs[1:, 1:].ravel()
+
+    all_faces = np.vstack([tl, tr, bl, br])
+
+    # Only include quads where ALL 4 corners are unmasked
+    masked_quads = (
+        masked[:-1, :-1] & masked[:-1, 1:] & masked[1:, :-1] & masked[1:, 1:]
+    )
+
+    faces = all_faces[:, masked_quads.ravel()]
+    faces = faces[[0, 1, 3, 0, 3, 2], :].T
+    faces = faces.reshape(-1, 3)
+
+    return vertices, faces
+
+
+def limit_facet_size(facets, max_width=1000.0, max_depth=1000.0, max_height=1000.0):
+    """
+    max_width, max_depth, max_height (floats) - maximum size of the stl object (in mm).
+                    Match this to the dimensions of a 3D printer platform.
+    """
+    xsize = facets[:, 3::3].ptp()
+    if xsize > max_width:
+        facets = facets * float(max_width) / xsize
+
+    ysize = facets[:, 4::3].ptp()
+    if ysize > max_depth:
+        facets = facets * float(max_depth) / ysize
+
+    zsize = facets[:, 5::3].ptp()
+    if zsize > max_height:
+        facets = facets * float(max_height) / zsize
+
+    return facets
+
+
+def polygon_to_complex(vertices, perimeters=None, z_margin=1):
+
+    if perimeters is None:
+        perimeters = [np.arange(len(vertices))]
+
+    wall_triangles = perimeter_to_complex_walls(vertices, perimeters, z_margin)
+
+    _, faces = simplify_surface(vertices[:, :2], perimeters)
+    top_triangles = vertices[faces]
+    top_triangles[:, :, 2] = top_triangles[:, :, 2] + z_margin
+
+    bottom_vertices = vertices.copy()
+    bottom_vertices[:, 2] = bottom_vertices[:, 2] - z_margin
+    bottom_triangles = bottom_vertices[faces[:, [1, 0, 2]]]
+
+    all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
+
+    return all_triangles
+
+
+def polygon_to_prism(vertices, perimeters=None, base_val=0):
+
+    if perimeters is None:
+        perimeters = [np.arange(len(vertices))]
+
+    wall_triangles = perimeter_to_walls(vertices, perimeters, floor_val=base_val)
+
+    _, faces = simplify_surface(vertices, perimeters)
+    top_triangles = vertices[faces]
+
+    bottom_vertices = vertices.copy()
+    bottom_vertices[:, 2] = base_val
+    bottom_triangles = bottom_vertices[faces[:, [1, 0, 2]]]
+
+    all_triangles = np.concatenate([top_triangles, wall_triangles, bottom_triangles])
+
+    return all_triangles
+
+
+def perimeter_to_walls(vertices, perimeters, floor_val=0):
+    """ """
+    wall_vertices = []
+
+    for peri in perimeters:
+        peri = vertices[peri]
+        peri_roll = np.roll(peri, 1, axis=0)
+
+        for n, _ in enumerate(peri):
+
+            top_left = np.concatenate([peri[n, :2], [floor_val]])
+            top_right = np.concatenate([peri_roll[n, :2], [floor_val]])
+
+            bottom_left = np.array(peri[n])
+            bottom_right = np.array(peri_roll[n])
+
+            vert = [top_right, top_left, bottom_right]
+            wall_vertices.append(vert)
+
+            vert = [bottom_right, top_left, bottom_left]
+            wall_vertices.append(vert)
+
+    wall_vertices = np.array(wall_vertices)
+    return wall_vertices
+
+
+def perimeter_to_complex_walls(vertices, perimeters, z_margin=1):
+    """ """
+    wall_vertices = []
+
+    for peri in perimeters:
+        peri = vertices[peri]
+        peri_roll = np.roll(peri, 1, axis=0)
+
+        for n, _ in enumerate(peri):
+
+            top_left = np.array(peri[n])
+            top_right = np.array(peri_roll[n])
+
+            top_left[2] = top_left[2] - z_margin
+            top_right[2] = top_right[2] - z_margin
+
+            bottom_left = np.array(peri[n])
+            bottom_right = np.array(peri_roll[n])
+
+            bottom_left[2] = bottom_left[2] + z_margin
+            bottom_right[2] = bottom_right[2] + z_margin
+
+            vert = [top_right, top_left, bottom_right]
+            wall_vertices.append(vert)
+
+            vert = [bottom_right, top_left, bottom_left]
+            wall_vertices.append(vert)
+
+    wall_vertices = np.array(wall_vertices)
+    return wall_vertices
+
+
+def roll2d(image, shifts):
+    return np.roll(np.roll(image, shifts[0], axis=0), shifts[1], axis=1)

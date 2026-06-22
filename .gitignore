@@ -3,3 +3,7 @@ dist
 *.egg-info
 __pycache__
 .ipynb_checkpoints
+registration/runs/stl_cache
+registration/runs/osm_cache
+registration/runs/
+registration/runs/region_reports/*/assets

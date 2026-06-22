@@ -1,0 +1,12 @@
+# numpy2stl - Base Requirements
+# Install with: pip install -r requirements.txt
+
+# Core dependencies
+numpy>=1.24.0
+shapely>=2.0.0
+
+# For full functionality, install extras:
+# pip install -e .[core]      # Adds scipy, triangle
+# pip install -e .[tools]     # Adds opencv, scikit-image
+# pip install -e .[full]      # Recommended set
+# pip install -e .[dev]       # Development tools
