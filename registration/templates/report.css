@@ -1,0 +1,62 @@
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, system-ui, sans-serif; font-size: 14px;
+       color: #222; background: #f5f5f5; }
+.page { max-width: 1280px; margin: 0 auto; padding: 24px 20px; }
+h1  { font-size: 1.7em; margin-bottom: 4px; }
+h2  { font-size: 1.15em; margin: 24px 0 8px; color: #333; border-bottom: 2px solid #e0e0e0;
+      padding-bottom: 4px; }
+h3  { font-size: 1.0em; margin: 16px 0 6px; color: #555; }
+p   { margin: 6px 0; line-height: 1.55; color: #444; }
+section { margin-bottom: 32px; }
+/* Collapsible, auto-numbered sections / subsections / figures */
+.page { counter-reset: sec fig; }
+details.rsec { margin-bottom: 16px; border: 1px solid #e0e0e0; border-radius: 6px;
+               background: #fff; padding: 0 16px; counter-reset: sub; }
+details.rsec > summary { font-size: 1.15em; font-weight: 600; color: #333; cursor: pointer;
+               padding: 12px 2px; list-style: none; border-bottom: 2px solid #eee; }
+details.rsec > summary::-webkit-details-marker { display: none; }
+details.rsec > summary::before { content: counter(sec) ".\00a0\00a0"; counter-increment: sec; color: #3a7ebf; }
+details.rsec > summary::after  { content: "\25B8"; color: #bbb; float: right; }
+details.rsec[open] > summary::after { content: "\25BE"; }
+details.rsec > *:last-child { margin-bottom: 16px; }
+h3::before { content: counter(sec) "." counter(sub) "\00a0\00a0"; counter-increment: sub; color: #999; }
+.figures figure figcaption::before { content: "Figure " counter(fig) ". "; counter-increment: fig; font-weight: 600; color: #555; }
+table { border-collapse: collapse; width: auto; }
+th, td { border: 1px solid #ddd; padding: 6px 14px; text-align: left; font-size: 13px; }
+th { background: #f0f0f0; font-weight: 600; }
+tr:nth-child(even) td { background: #fafafa; }
+.good   { color: #1a7a1a; font-weight: 600; }
+.warn   { color: #b36200; font-weight: 600; }
+.bad    { color: #cc0000; font-weight: 600; }
+.muted  { color: #888; font-size: 12px; }
+.figures { display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start; }
+.figures figure { margin: 0; }
+.figures figure img { max-width: 100%; display: block; border: 1px solid #ddd;
+                      border-radius: 3px; }
+.figures figure figcaption { font-size: 12px; color: #666; margin-top: 5px; }
+.wide-img { width: 100%; max-width: 1200px; display: block;
+            border: 1px solid #ddd; border-radius: 3px; }
+.caveat { background: #fff8e1; border-left: 4px solid #f9a825;
+          padding: 10px 16px; margin: 10px 0 16px; border-radius: 0 4px 4px 0;
+          font-size: 13px; color: #555; line-height: 1.5; }
+.quality-badge { display: inline-block; padding: 4px 14px; border-radius: 20px;
+                 font-size: 13px; font-weight: 700; margin-left: 10px; }
+.badge-good { background: #d4edda; color: #155724; }
+.badge-warn { background: #fff3cd; color: #856404; }
+.badge-bad  { background: #f8d7da; color: #721c24; }
+.process-steps { display: flex; gap: 0; flex-wrap: wrap; margin: 12px 0; }
+.step { background: #fff; border: 1px solid #ddd; border-radius: 4px;
+        padding: 10px 14px; min-width: 140px; flex: 1; text-align: center;
+        font-size: 12px; position: relative; }
+.step + .step::before { content: "→"; position: absolute; left: -14px; top: 50%;
+                         transform: translateY(-50%); font-size: 18px; color: #aaa; }
+.step .step-num { font-size: 18px; display: block; margin-bottom: 4px; }
+.step .step-label { font-weight: 600; display: block; margin-bottom: 2px; }
+.landmark-box { background: #fff; border: 1px solid #ddd; border-radius: 4px;
+                padding: 14px 18px; display: inline-block; margin-top: 8px; }
+.landmark-box .lm-val { font-family: monospace; font-size: 13px; }
+.timing-table td:last-child { font-family: monospace; }
+.timing-bar { display: inline-block; height: 14px; background: #3a7ebf;
+              vertical-align: middle; margin-left: 6px; border-radius: 2px; }
+footer { margin-top: 40px; font-size: 11px; color: #aaa; text-align: center;
+         padding-top: 16px; border-top: 1px solid #e0e0e0; }

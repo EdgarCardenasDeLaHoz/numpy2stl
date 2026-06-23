@@ -91,3 +91,32 @@ def cube_mesh():
         dtype=np.int32,
     )
     return vertices, faces
+
+
+# --- Registration fixtures (moved from test_registration.py, B6 split) ---
+
+@pytest.fixture
+def simple_building_array():
+    """32×32 array with a few rectangular 'buildings' — controlled test data."""
+    arr = np.zeros((32, 32), dtype=np.float64)
+    arr[6:14, 6:14] = 20.0    # building A
+    arr[18:26, 18:26] = 35.0  # building B
+    arr[10:16, 20:28] = 15.0  # building C
+    return arr
+
+
+@pytest.fixture
+def osm_mock():
+    """Synthetic OSM-like heightmap dict matching cities.py return format."""
+    arr = np.full((32, 32), np.nan, dtype=np.float64)
+    arr[6:14, 6:14] = 18.0
+    arr[18:26, 18:26] = 32.0
+    arr[10:16, 20:28] = 14.0
+    return {
+        "heightmap": arr,
+        "bounds": {"x": (-75.28, -74.95), "y": (39.86, 40.06), "z": (0.0, 35.0)},
+        "resolution": (32, 32),
+        "cell_size": (0.01, 0.006),
+        "projection": "max",
+    }
+
