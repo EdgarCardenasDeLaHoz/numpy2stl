@@ -486,17 +486,42 @@ def register_global(
                     "ROTATION only — scale is geometric, free_scale=off)", sc)
     elif scale_search <= 0.0:
         logger.info("  scale LOCKED to anchor %.4f (no xcorr re-pick)", sc)
-    elif scale_search <= 0.0:
-        logger.info("  scale LOCKED to anchor %.4f (no xcorr re-pick)", sc)
     elif scale_metrics:
-        sc_coarse = max(scale_metrics, key=lambda k: scale_metrics[k][2])  # [2] = xcorr
+        # Prefer the Dice/edge-IoU peak over the raw-heightmap xcorr peak when
+        # Dice shows a real, sharp peak: xcorr correlates absolute height
+        # magnitude, which is dominated by a handful of tall buildings and can
+        # be nearly flat/noisy across scale (no structural signal), while Dice
+        # measures actual footprint-shape agreement across the whole frame and
+        # empirically has a much sharper, more reliable peak (Miami: Dice peak
+        # at 0.75-0.85x vs. xcorr peak pinned to the search-range boundary at
+        # 1.5x — a strong sign xcorr's "peak" is just the search-window edge,
+        # not a real optimum). "Sharp" = peak clears the sweep's median by a
+        # solid margin, so a flat/ambiguous Dice curve still falls back to xcorr.
+        dice_by_scale = {k: v[0] for k, v in scale_metrics.items()}
+        dice_vals = sorted(dice_by_scale.values())
+        dice_median = dice_vals[len(dice_vals) // 2]
+        sc_dice_peak = max(dice_by_scale, key=dice_by_scale.get)
+        dice_peak_val = dice_by_scale[sc_dice_peak]
+        scales_sorted = sorted(scale_metrics)
+        at_boundary = sc_dice_peak in (scales_sorted[0], scales_sorted[-1])
+        _DICE_PEAK_MARGIN = 0.10  # min (peak - median) to trust the Dice peak over xcorr
+
+        if not at_boundary and (dice_peak_val - dice_median) >= _DICE_PEAK_MARGIN:
+            sc_coarse = sc_dice_peak
+            pick_metric = "dice"
+        else:
+            sc_coarse = max(scale_metrics, key=lambda k: scale_metrics[k][2])  # [2] = xcorr
+            pick_metric = "xcorr"
+
         sfine = {}
         for sv in np.arange(sc_coarse - 0.05, sc_coarse + 0.05 + 1e-9, 0.0125):
             if sv > 0.1:
-                sfine[round(float(sv), 4)] = _metrics_at(float(sv), br)[2]  # xcorr
+                d, i, x, _, _ = _metrics_at(float(sv), br)
+                sfine[round(float(sv), 4)] = d if pick_metric == "dice" else x
         sc_peak = max(sfine, key=sfine.get) if sfine else sc_coarse
-        logger.info("  scale by peak heightmap xcorr: %.4f (xcorr %.4f) [global %.4f]",
-                    sc_peak, sfine.get(sc_peak, scale_metrics[sc_coarse][2]), sc)
+        logger.info("  scale by peak %s: %.4f (dice-peak=%.4f @ %.4f, xcorr-peak-scale=%.4f) [global %.4f]",
+                    pick_metric, sc_peak, dice_peak_val, sc_dice_peak,
+                    max(scale_metrics, key=lambda k: scale_metrics[k][2]), sc)
         sc = float(sc_peak)
 
     # ROTATION: start from the gradient-histogram estimate, then refine it by
@@ -509,13 +534,26 @@ def register_global(
     # to avoid alias flips), and adopt the edge-IoU peak ONLY if it beats the
     # histogram pose by a clear margin (guards irregular cities like Boston where
     # the 0°-biased histogram is already right).
+    #
+    # The fixed _ROT_IOU_MARGIN alone is not enough: on dense grid cities (e.g.
+    # Miami — near-uniform diagonal blocks over the whole frame), full-frame
+    # edge-IoU vs. rotation is multi-modal/noisy (several comparably-tall local
+    # peaks a few degrees apart, not one clean maximum) — see rot_sweep.png.
+    # A peak that clears the *margin* by chance is common in that noise; a peak
+    # that also clears the *sweep's own median* by a solid amount is a much
+    # stronger signal that it reflects real structure, not noise. Require both.
     rot = float(hist_rot_resolved)
     rot_iou_sweep: dict[float, float] = {}
     _iou_base = _metrics_at(sc, rot, crop=False)[1]
     for _rr in np.arange(rot - _ROT_IOU_WINDOW, rot + _ROT_IOU_WINDOW + 1e-9, 1.0):
         rot_iou_sweep[round(float(_rr), 2)] = _metrics_at(sc, float(_rr), crop=False)[1]
     _rr_best = max(rot_iou_sweep, key=rot_iou_sweep.get)
-    if rot_iou_sweep[_rr_best] > _iou_base + _ROT_IOU_MARGIN and abs(_rr_best - rot) > 1e-6:
+    _sweep_vals = sorted(rot_iou_sweep.values())
+    _sweep_median = _sweep_vals[len(_sweep_vals) // 2]
+    _ROT_PEAK_MARGIN = 0.10  # min (peak - sweep median) to trust the IoU peak over the histogram
+    _is_sharp_peak = (rot_iou_sweep[_rr_best] - _sweep_median) >= _ROT_PEAK_MARGIN
+    if (rot_iou_sweep[_rr_best] > _iou_base + _ROT_IOU_MARGIN and abs(_rr_best - rot) > 1e-6
+            and _is_sharp_peak):
         # fine refine ±1° at 0.25° around the IoU peak
         _fine = {}
         for _rr in np.arange(_rr_best - 1.0, _rr_best + 1.0 + 1e-9, 0.25):
@@ -523,9 +561,16 @@ def register_global(
             rot_iou_sweep[round(float(_rr), 2)] = _fine[round(float(_rr), 2)]
         _rr_fine = max(_fine, key=_fine.get)
         logger.info("  rotation refined by edge-IoU: %.2f° → %.2f° "
-                    "(IoU %.3f → %.3f, +%.3f over histogram)", rot, _rr_fine,
-                    _iou_base, _fine[_rr_fine], _fine[_rr_fine] - _iou_base)
+                    "(IoU %.3f → %.3f, +%.3f over histogram, peak-vs-median margin %.3f)", rot, _rr_fine,
+                    _iou_base, _fine[_rr_fine], _fine[_rr_fine] - _iou_base,
+                    rot_iou_sweep[_rr_best] - _sweep_median)
         rot = float(_rr_fine)
+    elif rot_iou_sweep[_rr_best] > _iou_base + _ROT_IOU_MARGIN and abs(_rr_best - rot) > 1e-6:
+        logger.info("  rotation kept at histogram estimate %.2f° "
+                    "(edge-IoU peak %.2f° gain %.3f > margin, but sweep is noisy/multi-modal: "
+                    "peak-vs-median %.3f < %.3f)",
+                    rot, _rr_best, rot_iou_sweep[_rr_best] - _iou_base,
+                    rot_iou_sweep[_rr_best] - _sweep_median, _ROT_PEAK_MARGIN)
     else:
         logger.info("  rotation kept at histogram estimate %.2f° "
                     "(edge-IoU peak %.2f° gain %.3f ≤ margin %.3f)",

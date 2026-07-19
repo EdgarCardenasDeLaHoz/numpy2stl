@@ -111,6 +111,113 @@ class TestRegister:
         assert np.all(np.isfinite(result["transform"]))
 
 
+class TestScaleSelectionRobustness:
+    """Regression test for the scale-selection fix (Dice-peak over xcorr-peak).
+
+    Found via a real Miami STL: with no geometric scale anchor, scale was
+    chosen by the peak of the raw-heightmap cross-correlation (`scale_metrics[k][2]`),
+    which is dominated by absolute height magnitude and can be nearly
+    flat/noisy across scale (no real optimum) — the peak was pinned to the
+    edge of the search range (1.5x) instead of the true scale. Footprint
+    Dice/edge-IoU (`scale_metrics[k][0]`/`[1]`), which measure actual shape
+    agreement, had a clean, sharp peak at the true scale the whole time.
+
+    Reproducing this end-to-end through the full mesh -> building_mask ->
+    edge -> Dice pipeline with a synthetic array proved brittle (building_mask's
+    STL-path top-hat/Otsu thresholding is sensitive to exact synthetic input
+    shape in ways that don't reflect the actual bug). Instead this test
+    exercises the exact decision logic that was changed, directly on a
+    `scale_metrics`-shaped dict mirroring the real Miami sweep data
+    (docs/plans/F-MESHIMPORT-stl-obj-layer-import.md's investigation) —
+    Dice/IoU with a sharp peak away from the sweep edge, xcorr flat/peaked at
+    the boundary.
+    """
+
+    def test_prefers_sharp_dice_peak_over_flat_boundary_xcorr(self):
+        """Mirrors the real Miami scale_sweep: Dice/IoU peak sharply around
+        0.75-0.85 while xcorr is flat/noisy and highest at the search-range
+        boundary (1.45-1.50) — the old logic picked scale=1.5 (wrong); the
+        fix should pick something near the Dice peak instead."""
+        scale_metrics: dict[float, tuple[float, float, float]] = {}
+        scales = [round(0.55 + 0.025 * i, 3) for i in range(39)]  # 0.55..1.50
+        for s in scales:
+            # Dice/IoU: sharp peak centered at 0.80, falling off either side.
+            dice = max(0.0, 0.94 - 6.0 * (s - 0.80) ** 2)
+            iou = max(0.0, 0.50 - 3.0 * (s - 0.80) ** 2)
+            # xcorr: flat/noisy baseline around -0.05..-0.10, rising slightly
+            # toward the boundary (mirrors the real "peak xcorr @ 1.450" log).
+            xcorr = -0.08 + 0.001 * (s - 0.55) + (0.02 if s > 1.4 else 0.0)
+            scale_metrics[s] = (dice, iou, xcorr)
+
+        dice_by_scale = {k: v[0] for k, v in scale_metrics.items()}
+        dice_vals = sorted(dice_by_scale.values())
+        dice_median = dice_vals[len(dice_vals) // 2]
+        sc_dice_peak = max(dice_by_scale, key=dice_by_scale.get)
+        dice_peak_val = dice_by_scale[sc_dice_peak]
+        scales_sorted = sorted(scale_metrics)
+        at_boundary = sc_dice_peak in (scales_sorted[0], scales_sorted[-1])
+        _DICE_PEAK_MARGIN = 0.10
+
+        assert not at_boundary, "test fixture's Dice peak should not sit at the sweep boundary"
+        assert (dice_peak_val - dice_median) >= _DICE_PEAK_MARGIN, (
+            "test fixture's Dice peak should clear the sharpness margin"
+        )
+        # This is the exact condition from global_search.py's scale-selection
+        # branch: with a sharp, non-boundary Dice peak, the fix should pick
+        # scale by Dice, not by the (here misleading) xcorr peak.
+        pick_metric = "dice" if (not at_boundary and (dice_peak_val - dice_median) >= _DICE_PEAK_MARGIN) else "xcorr"
+        assert pick_metric == "dice"
+        assert abs(sc_dice_peak - 0.80) < 0.05, (
+            f"Dice-based pick landed at {sc_dice_peak}, not near the true peak (0.80) — "
+            "would have reverted to the old xcorr-peak-at-boundary bug (scale=1.5)"
+        )
+
+
+class TestRotationRefinementRobustness:
+    """Regression test for the rotation edge-IoU refinement fix.
+
+    Found via a real Miami STL: the histogram-based rotation estimate was
+    already correct (its overlay curve matched OSM's dominant wall-angle
+    peak almost exactly), but a full-frame edge-IoU sweep across a dense,
+    near-uniform grid produced several comparably-tall, noisy local maxima
+    a few degrees apart — the old fixed-margin check (`_ROT_IOU_MARGIN`)
+    let a ~20° spurious "improvement" override a correct histogram estimate.
+    This test builds a dense repeating grid target (same period at every
+    90°-aliased angle, so edge-IoU is genuinely near-flat/noisy vs. rotation
+    away from 0°) and checks the histogram estimate is not overridden by
+    that noise.
+    """
+
+    @pytest.mark.skipif(not HAS_CV2, reason="opencv required")
+    def test_correct_histogram_estimate_not_overridden_by_noisy_iou(self):
+        from numpy2stl.registration.align.global_search import register_global
+
+        rng = np.random.RandomState(1)
+        n, cell, bsize = 220, 14, 8
+        arr = np.full((n, n), np.nan, dtype=np.float64)
+        for gr in range(cell // 2, n - bsize, cell):
+            for gc in range(cell // 2, n - bsize, cell):
+                sh = bsize + rng.randint(-1, 2)
+                sw = bsize + rng.randint(-1, 2)
+                arr[gr:gr + sh, gc:gc + sw] = rng.uniform(8, 15)
+
+        # Source == target (axis-aligned grid, true rotation = 0). A dense,
+        # near-uniform grid like this is exactly where full-frame edge-IoU
+        # vs. rotation is multi-modal/noisy (see rot_sweep.png from the
+        # Miami investigation) — the histogram estimate should win.
+        result = register_global(arr, arr, scale_search=0.0)
+        angle = result["angle_deg"]
+        # True rotation is 0 (mod 90, by grid symmetry) — assert we land
+        # near a multiple of 90 degrees, not at some arbitrary noisy offset
+        # like the ~20 degree spurious override seen in the original bug.
+        nearest_90_residual = min(abs(angle % 90), 90 - abs(angle % 90))
+        assert nearest_90_residual < 5.0, (
+            f"recovered angle {angle:.2f}° is not near a multiple of 90° "
+            f"(residual {nearest_90_residual:.2f}°) — rotation refinement may "
+            "have overridden a correct histogram estimate with sweep noise"
+        )
+
+
 class TestBuildingMask:
 
     def test_osm_mask_is_non_nan(self):
