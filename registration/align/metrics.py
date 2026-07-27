@@ -94,6 +94,7 @@ def score_alignment(
     source: np.ndarray,
     target: np.ndarray,
     transform: np.ndarray,
+    cell_size_m: float | None = None,
 ) -> dict:
     """
     Objective registration-quality metrics for a given source→target transform.
@@ -101,6 +102,11 @@ def score_alignment(
     Warps the source heightmap by `transform` into the target frame, then
     measures how well the two agree.  Independent of how the transform was
     produced, so it's the fair comparator for different strategies.
+
+    `cell_size_m` sizes the STL top-hat kernel in real metres (see
+    terrain_residual()) — pass the target grid's metres/pixel (e.g.
+    report.cell_size_m) so this scores the same segmentation the search
+    actually used; omitting it falls back to resolution-naive pixel sizing.
 
     Returns
     -------
@@ -117,7 +123,7 @@ def score_alignment(
     """
     aligned = apply_transform(source, transform, output_shape=target.shape)
 
-    s_mask = building_mask(aligned, source="stl")
+    s_mask = building_mask(aligned, source="stl", cell_size_m=cell_size_m)
     t_mask = building_mask(target, source="osm")
 
     def _iou(a, b):

@@ -100,7 +100,12 @@ def register_global(
     # building mask, so a blobby/poor segmentation can't corrupt rotation (this
     # fixed the 45°/90° aliases on irregular cities).  The STL gradient is taken
     # on the terrain RESIDUAL so hill slopes don't add spurious orientations.
-    te_edges = building_edges(target, source="osm").astype(np.float32)   # report only
+    # cell_size_m sizes the terrain top-hat kernel in real metres (see
+    # terrain_residual()) — without it, building_mask/building_edges fall back to
+    # a resolution-naive pixel-based kernel that isn't tied to the model's actual
+    # scale, which is exactly the physical anchor this function otherwise takes
+    # care to establish before running the search.
+    te_edges = building_edges(target, source="osm", cell_size_m=cell_size_m).astype(np.float32)   # report only
     if te_edges.shape != target.shape:
         te_edges = cv2.resize(te_edges, (w, h), interpolation=cv2.INTER_NEAREST)
 
@@ -114,7 +119,7 @@ def register_global(
             _sm = cv2.resize(_sm, (w, h), interpolation=cv2.INTER_NEAREST)
         se_edges = (_sm - cv2.erode(_sm, np.ones((3, 3), np.uint8))).astype(np.float32)
     else:
-        se_edges = building_edges(source, source="stl").astype(np.float32)
+        se_edges = building_edges(source, source="stl", cell_size_m=cell_size_m).astype(np.float32)
         if se_edges.shape != target.shape:
             se_edges = cv2.resize(se_edges, (w, h), interpolation=cv2.INTER_NEAREST)
 

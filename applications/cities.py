@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Union
 
 import numpy as np
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -237,6 +238,49 @@ def get_city_bbox(city_name: str) -> tuple[float, float, float, float]:
     return (float(N), float(S), float(E), float(W))
 
 
+def get_city_center_point(city_name: str) -> tuple[float, float] | None:
+    """Best-effort (lat, lon) for a city's downtown/CBD, for anchoring a tight
+    OSM-fetch bbox around wherever a partial-coverage model (e.g. a downtown-only
+    STL) actually is — NOT the same as get_city_bbox()'s administrative-boundary
+    centroid, which for a sprawling metro (e.g. Miami) can land many km from
+    downtown, off the edge of what a small model actually covers.
+
+    Tries "Downtown {city_name}" first (a point geocode via Nominatim, which
+    resolves recognizable "Downtown X" / "X Central Business District" queries
+    for most sizeable cities); falls back to get_city_bbox()'s centroid, then
+    None if geocoding fails entirely.
+
+    Measured across 7 Micropolitan-pack cities (Barcelona, Bilbao, Lisbon,
+    Paris, Prague, Salzburg, Valencia) using the tight-bbox
+    scale+center anchor this function feeds: confidence/footprint_iou
+    improved for 4 (Bilbao, Lisbon, Prague, Valencia) and regressed for 3
+    (Barcelona, Paris, Salzburg) vs. the old full-city-fetch behavior — all 7
+    got dramatically faster (100-200s vs 165-725s) since the OSM fetch area
+    shrank either way. The "Downtown {city}" geocode landed at plausible,
+    named landmarks for all 3 regressions (Plaça Catalunya, Île de la
+    Cité/Notre-Dame, Salzburg old town) — not an obviously bad center — so
+    the likely cause is that Micropolitan's own crop center for those
+    specific models doesn't coincide with the conventional "downtown" point
+    for that city, not a bug in the geocode itself. Not resolved; would need
+    per-model ground truth (the STL's actual real-world crop center) to fix
+    properly rather than guessing at a better heuristic.
+    """
+    if not HAS_OSMNX:
+        return None
+    try:
+        lat, lon = ox.geocode(f"Downtown {city_name}")
+        return (float(lat), float(lon))
+    except Exception as exc:
+        logger.info("Could not geocode 'Downtown %s' (%s); falling back to city centroid.",
+                    city_name, exc)
+    try:
+        n, s, e, w = get_city_bbox(city_name)
+        return ((n + s) / 2.0, (e + w) / 2.0)
+    except Exception as exc:
+        logger.warning("Could not determine a center point for %r (%s).", city_name, exc)
+        return None
+
+
 _OSM_CACHE_DIR = Path(__file__).parent.parent / "registration" / "runs" / "osm_cache"
 
 
@@ -355,18 +399,29 @@ def get_osm_semantic_masks(
     cache: bool = True,
 ) -> dict:
     """
-    Fetch OSM vegetation and water polygons and rasterize them to boolean masks
-    on the same grid as get_osm_building_heightmap().
+    Fetch OSM vegetation/water polygons and elevated-roadway ways, rasterized
+    to boolean masks on the same grid as get_osm_building_heightmap().
 
-    These label regions that are NOT buildings (parks, forests, rivers, lakes),
-    so STL height that falls under them — trees, riverbanks misread as structures
-    — can be excluded from the building mask before comparison.
+    These label regions that are NOT buildings but can still rise above local
+    terrain in an STL model — trees, riverbanks, and elevated highways/overpasses
+    all read as "height above ground" to the top-hat segmentation the same way a
+    building does, and OSM has no building footprint there to match against. STL
+    height under these regions can be excluded from the building mask before
+    registration/comparison.
+
+    Elevated roadways specifically (bridge=yes highways — overpasses, viaducts,
+    elevated highway sections) were a measured, real source of false-positive
+    "buildings" in the STL segmentation (e.g. Miami's elevated highway ramps),
+    distinct from ordinary at-grade roads which lie flush with the ground and
+    don't trigger the top-hat filter in the first place — so only bridges are
+    fetched here, not the full road network.
 
     Returns
     -------
     dict with keys:
-        'vegetation' : (rows, cols) bool — True under woods/forest/grass/parks
-        'water'      : (rows, cols) bool — True under water/waterways
+        'vegetation'       : (rows, cols) bool — True under woods/forest/grass/parks
+        'water'            : (rows, cols) bool — True under water/waterways
+        'elevated_roadway' : (rows, cols) bool — True under bridges/overpasses/viaducts
         'bounds', 'resolution'  (matching _make_result conventions)
     """
     if not HAS_OSMNX:
@@ -385,9 +440,16 @@ def get_osm_semantic_masks(
     if cache and cache_path.exists():
         logger.info("Loading OSM semantic masks from cache: %s", cache_path.name)
         data = np.load(cache_path)
+        # Older cache entries predate the elevated_roadway mask — treat as
+        # "none found" rather than a stale/incomplete cache hit that silently
+        # skips the bridge exclusion.
+        elevated = (data["elevated_roadway"].astype(bool)
+                    if "elevated_roadway" in data.files
+                    else np.zeros((resolution, resolution), dtype=bool))
         return {
             "vegetation": data["vegetation"].astype(bool),
             "water": data["water"].astype(bool),
+            "elevated_roadway": elevated,
             "bounds": {"x": (float(W), float(E)), "y": (float(S), float(N))},
             "resolution": (resolution, resolution),
         }
@@ -401,17 +463,21 @@ def get_osm_semantic_masks(
 
     veg = _rasterize_semantic(veg_tags, N, S, E, W, resolution)
     water = _rasterize_semantic(water_tags, N, S, E, W, resolution)
-    logger.info("OSM semantic masks: vegetation=%.1f%%  water=%.1f%% of frame",
-                100.0 * veg.mean(), 100.0 * water.mean())
+    elevated = _rasterize_elevated_roadways(N, S, E, W, resolution)
+    logger.info("OSM semantic masks: vegetation=%.1f%%  water=%.1f%%  "
+                "elevated_roadway=%.1f%% of frame",
+                100.0 * veg.mean(), 100.0 * water.mean(), 100.0 * elevated.mean())
 
     if cache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
-        np.savez_compressed(cache_path, vegetation=veg, water=water)
+        np.savez_compressed(cache_path, vegetation=veg, water=water,
+                            elevated_roadway=elevated)
         logger.info("Cached OSM semantic masks: %s", cache_path.name)
 
     return {
         "vegetation": veg,
         "water": water,
+        "elevated_roadway": elevated,
         "bounds": {"x": (float(W), float(E)), "y": (float(S), float(N))},
         "resolution": (resolution, resolution),
     }
@@ -436,6 +502,117 @@ def _rasterize_semantic(tags: dict, N, S, E, W, resolution: int) -> np.ndarray:
     # Reuse the building rasterizer with a constant height of 1.0 → presence.
     poly["height_m"] = 1.0
     arr = _rasterize_buildings(poly, N, S, E, W, resolution)
+    return ~np.isnan(arr)
+
+
+# Fallback roadway width (metres) when OSM has no width/lanes tag, by highway
+# class — bridges are almost always multi-lane arterial/motorway sections.
+_HIGHWAY_DEFAULT_WIDTH_M = {
+    "motorway": 15.0, "motorway_link": 8.0,
+    "trunk": 12.0, "trunk_link": 7.0,
+    "primary": 10.0, "primary_link": 6.0,
+    "secondary": 9.0, "secondary_link": 6.0,
+}
+_HIGHWAY_FALLBACK_WIDTH_M = 7.0  # any other bridge-tagged highway class
+
+
+def _rasterize_elevated_roadways(N, S, E, W, resolution: int) -> np.ndarray:
+    """Fetch bridge/viaduct highway ways and rasterize a buffered presence mask.
+
+    OSM roads are LineStrings with no inherent width, so real-world width is
+    estimated from the `width` tag when present, else `lanes` x 3.5m, else a
+    highway-class default — then buffered to a polygon before rasterizing.
+    Only bridge=* ways are fetched (ordinary at-grade roads don't rise above
+    local terrain and can't false-positive the top-hat building filter).
+    """
+    empty = np.zeros((resolution, resolution), dtype=bool)
+    try:
+        # NOTE: osmnx/Overpass tag dicts with >1 key are OR'd, not AND'd —
+        # {"bridge": [...], "highway": True} would match every highway=* way
+        # regardless of bridge tag (measured: 6182/6480 matches had no bridge
+        # tag at all). Query on "bridge" alone, then keep only rows that also
+        # carry a highway=* tag (i.e. exclude bridge=yes on footways/railways
+        # if desired — kept permissive here since all measured cases were
+        # legitimate roads).
+        gdf = ox.features_from_bbox(
+            bbox=(W, S, E, N),
+            tags={"bridge": ["yes", "viaduct", "aqueduct"]},
+        )
+    except Exception as e:
+        logger.warning("OSM elevated-roadway fetch failed (%s); empty mask.", e)
+        return empty
+
+    if gdf is None or len(gdf) == 0:
+        return empty
+    ways = gdf[gdf.geometry.geom_type.isin(["LineString", "MultiLineString"])].copy()
+    if len(ways) == 0:
+        return empty
+    if "highway" in ways.columns:
+        ways = ways[ways["highway"].notna()]
+    if len(ways) == 0:
+        return empty
+
+    # Degrees-per-metre at this latitude, for buffering a geographic LineString
+    # by a real-world half-width (buffer() operates in the geometry's own units).
+    lat_c = (N + S) / 2.0
+    m_per_deg_lat = 111_320.0
+    m_per_deg_lon = 111_320.0 * max(0.1, np.cos(np.radians(lat_c)))
+
+    def _is_missing(v) -> bool:
+        # OSM tag columns come back as pandas NA/NaN (a float) for empty
+        # cells, not None — pd.isna handles both, and str/list values (which
+        # pd.isna can't take directly) are never "missing" here.
+        return v is None or (not isinstance(v, (str, list)) and bool(pd.isna(v)))
+
+    def _width_m(row) -> float:
+        w = row.get("width")
+        if not _is_missing(w):
+            try:
+                v = float(str(w).split(";")[0].split()[0])
+                if np.isfinite(v) and v > 0:
+                    return v
+            except (ValueError, IndexError):
+                pass
+        lanes = row.get("lanes")
+        if not _is_missing(lanes):
+            try:
+                v = float(str(lanes).split(";")[0]) * 3.5
+                if np.isfinite(v) and v > 0:
+                    return v
+            except (ValueError, IndexError):
+                pass
+        hwy = row.get("highway")
+        hwy = hwy[0] if isinstance(hwy, list) else hwy
+        return _HIGHWAY_DEFAULT_WIDTH_M.get(hwy, _HIGHWAY_FALLBACK_WIDTH_M)
+
+    def _buffer(row):
+        half_w_m = _width_m(row) / 2.0
+        # Anisotropic degree-buffer approximating a real-world circular buffer:
+        # buffer in lon-degrees using the lon-per-metre scale, matching the
+        # N/S extent via a simple x/y scale correction.
+        half_w_deg_lon = half_w_m / m_per_deg_lon
+        scale_y = m_per_deg_lon / m_per_deg_lat
+        from shapely.affinity import scale as _shp_scale
+        g = row.geometry.buffer(half_w_deg_lon)
+        return _shp_scale(g, xfact=1.0, yfact=scale_y, origin=row.geometry.centroid)
+
+    def _safe_buffer(row):
+        try:
+            return _buffer(row)
+        except Exception as exc:
+            logger.debug("Skipping one bridge way (buffer failed: %s)", exc)
+            return None
+
+    ways["geometry"] = [
+        _safe_buffer(row) for _, row in ways.iterrows()
+        if row.geometry is not None and not row.geometry.is_empty
+    ]
+    ways = ways[ways.geometry.notna() & ~ways.geometry.is_empty]
+    if len(ways) == 0:
+        return empty
+
+    ways["height_m"] = 1.0
+    arr = _rasterize_buildings(ways, N, S, E, W, resolution)
     return ~np.isnan(arr)
 
 

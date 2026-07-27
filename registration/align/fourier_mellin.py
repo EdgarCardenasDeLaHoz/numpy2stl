@@ -33,6 +33,35 @@ Improvements over the legacy `scale._coarse_estimate` prototype:
 This is a prototype: it exposes `fourier_mellin_register(source, target)` for
 evaluation against the production gradient path; it is not yet wired into
 `register_global`.
+
+Evaluated against real STL/OSM data (Miami, tight downtown bbox) while
+investigating whether a "match the coastline first" coarse pre-pass would
+help registration quality:
+  - Water masks ALONE (STL's companion _Water.stl mesh vs OSM's water
+    polygons) gave a garbage result (confidence 0.03, angle way off) — OSM
+    water coverage in a tight downtown bbox was only 2.1% of the frame, too
+    sparse for the log-polar spectral method to lock onto reliably.
+  - Building masks alone: correct (angle 0.00° matching the known-good
+    answer, plausible scale, confidence 0.17) — FM works fine on real data
+    when there's enough signal.
+  - Building + water combined (water weighted 0.3-0.5x buildings): matched
+    the building-only result, confidence ticked up slightly (0.17→0.18) —
+    doesn't hurt, isn't a clear win either. Weighting water at 1.0x (equal to
+    buildings) broke the result (water's low-frequency content dominated the
+    spectrum and drowned the useful building signal).
+  - Self-registration on a synthetic PERFECTLY PERIODIC building grid (the
+    exact pathology that made register_global's edge-IoU sweep lock onto a
+    spurious 0.7x scale in tests/test_registration_register.py, see that
+    test's docstring) came back scale=1.000 angle=0.000 via FM — the
+    spectral method doesn't share that failure mode, since it isn't a
+    discrete per-candidate overlap sweep.
+Conclusion: FM is real, works, and is structurally immune to a known
+failure mode of the current search — but the water-based coarse-match idea
+specifically wasn't supported by evidence on real data, and wiring FM in as
+a general coarse pre-pass wasn't clearly justified by the (modest) measured
+gain against the real cost of adding it to the pipeline. Left unwired
+pending either a case where the current method visibly fails on real data,
+or evidence from a city with substantially more water coverage in frame.
 """
 from __future__ import annotations
 

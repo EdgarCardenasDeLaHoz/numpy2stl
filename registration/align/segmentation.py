@@ -196,7 +196,7 @@ def building_mask(
     target_coverage: float | None = None,
     cell_size_m: float | None = None,
     segment_features: bool = False,
-    threshold_method: str = "p50",
+    threshold_method: str = "triangle",
     fill_holes_px: int | None = 0,
     split_watershed: bool = False,
 ) -> np.ndarray:
@@ -243,10 +243,16 @@ def building_mask(
                 # sized in metres when cell_size_m is known (resolution-independent),
                 # else legacy pixel sizing.  See terrain_residual() for rationale.
                 #
-                # Threshold the residual at p24 (empirically optimal at 512): only
-                # cells rising meaningfully above local ground survive.  Coverage
-                # matching is NOT used by default — forcing OSM coverage pulls in
-                # terrain features to make up the numbers.
+                # Default threshold_method="triangle" (skimage threshold_triangle):
+                # only cells rising meaningfully above local ground survive.
+                # Coverage matching is NOT used by default — forcing OSM coverage
+                # pulls in terrain features to make up the numbers. Measured against
+                # real STL-pack data (Miami downtown, OSM coverage 24.9% ground
+                # truth): triangle → 19.2% (closest), p50 → 50.7%, p24 → 77.4%,
+                # multiotsu → 11.6% — p50 was the function's default until this was
+                # fixed, silently doubling building-mask coverage almost everywhere
+                # (the two call sites that already knew to override it to "triangle"
+                # were the exception, not the rule).
                 residual, valid = terrain_residual(arr, cell_size_m=cell_size_m)
                 res_valid = residual[valid]
                 if target_coverage is not None:

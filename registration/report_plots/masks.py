@@ -52,10 +52,16 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     stl = report.stl_heightmap
     osm = report.osm_heightmap
 
-    # Use exactly the same threshold as registration (p80, no coverage matching)
-    stl_mask = building_mask(stl, source="stl")
+    # cell_size_m sizes the STL top-hat kernel in real metres (see
+    # terrain_residual()) — matches what register_global() actually uses during
+    # the search (report.cell_size_m is the same report-resolution grid these
+    # heightmaps are on). Without it the kernel falls back to resolution-naive
+    # pixel sizing and this panel can show a visibly different (and misleading)
+    # segmentation than what the algorithm actually registered against.
+    _csm = getattr(report, "cell_size_m", None)
+    stl_mask = building_mask(stl, source="stl", cell_size_m=_csm)
     osm_mask  = building_mask(osm, source="osm")
-    stl_edge  = building_edges(stl, source="stl")
+    stl_edge  = building_edges(stl, source="stl", cell_size_m=_csm)
     osm_edge  = building_edges(osm, source="osm")
 
     # Component stats — OSM cell size from known_scale if available
@@ -78,7 +84,7 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     _imshow_heightmap(ax[0, 0], stl, "STL heightmap (model units)", "viridis", "#cccccc")
     ax[0, 1].imshow(stl_mask, origin="lower", cmap="gray")
     ax[0, 1].set_title(
-        f"STL binary mask  (p80 top-hat, morphological opening)\n"
+        f"STL binary mask  (adaptive top-hat threshold, morphological opening)\n"
         f"{100*stl_mask.mean():.1f}% of frame\n"
         f"{_stats_line(stl_stats)}", fontsize=9)
     ax[0, 2].imshow(stl_edge, origin="lower", cmap="gray")
@@ -131,16 +137,24 @@ def render_mask_overlay_png(out_path: str | Path, report) -> Path:
     # already in OSM space) rasterized directly — these are the building LINES with
     # no working-resolution re-segmentation that would fuse neighbours into blobs.
     polys = getattr(report, "_stl_polygons", None)
+    stl_building_mask = getattr(report, "stl_building_mask", None)
     if polys:
         stl_mask = np.zeros(report.osm_heightmap.shape, dtype=np.uint8)
         import cv2 as _cv2
         for p in polys:
             _cv2.fillPoly(stl_mask, [np.asarray(p, dtype=np.int32)], 1)
         stl_mask = stl_mask.astype(bool)
+    elif stl_building_mask is not None and stl_building_mask.shape == report.osm_heightmap.shape:
+        # The mask _run_comparison actually scored comp_result against — already
+        # in OSM space and already has vegetation/water/elevated-roadway excluded.
+        # Re-deriving from stl_heightmap here would silently skip that exclusion
+        # and show a mask that doesn't match what comp_result.footprint_iou means.
+        stl_mask = stl_building_mask.astype(bool)
     else:
         # Fallback: segment the heightmap and warp into OSM space.
         stl_mask_orig = building_mask(report.stl_heightmap, source="stl",
-                                      split_watershed=True).astype(np.float64)
+                                      split_watershed=True,
+                                      cell_size_m=getattr(report, "cell_size_m", None)).astype(np.float64)
         stl_mask = apply_transform(
             stl_mask_orig, report.registration.transform,
             output_shape=report.osm_heightmap.shape, fill_value=0.0) > 0.5
@@ -215,7 +229,7 @@ def render_matched_buildings_png(out_path: str | Path, report) -> Path:
     stl_m = report.stl_aligned * comp.height_scale_used + comp.height_offset_used
     osm = report.osm_heightmap
 
-    stl_mask = building_mask(stl_m, source="stl")
+    stl_mask = building_mask(stl_m, source="stl", cell_size_m=getattr(report, "cell_size_m", None))
     osm_mask = building_mask(osm, source="osm")
 
     # Label OSM building components; match each to STL where they overlap.
@@ -318,7 +332,8 @@ def render_footprint_rgchannel_png(out_path: str | Path, report) -> Path:
     from matplotlib.patches import Patch
 
     # Warp the original STL mask (same threshold as registration and binarization)
-    stl_mask_orig = building_mask(report.stl_heightmap, source="stl").astype(np.float64)
+    stl_mask_orig = building_mask(report.stl_heightmap, source="stl",
+                                   cell_size_m=getattr(report, "cell_size_m", None)).astype(np.float64)
     stl_mask_warped = apply_transform(
         stl_mask_orig, report.registration.transform,
         output_shape=report.osm_heightmap.shape, fill_value=0.0,
@@ -390,7 +405,8 @@ def render_vectorized_png(out_path: str | Path, report) -> Path | None:
     # Prefer the hi-res adaptive STL polygons (separated footprints) when present.
     stl_polys = getattr(report, "_stl_polygons", None)
     if not stl_polys:
-        stl_polys = vectorize_buildings(building_mask(report.stl_aligned, source="stl"))
+        stl_polys = vectorize_buildings(building_mask(
+            report.stl_aligned, source="stl", cell_size_m=getattr(report, "cell_size_m", None)))
     osm_polys = vectorize_buildings(building_mask(report.osm_heightmap, source="osm"))
 
     def _draw(ax, polys, title, color):

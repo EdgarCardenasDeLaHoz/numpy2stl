@@ -124,7 +124,8 @@ def render_registration_index(report, asset_paths: dict) -> str:
         from .align import score_alignment
         import numpy as _np
         sc = score_alignment(report.stl_aligned, report.osm_heightmap,
-                             _np.array([[1,0,0],[0,1,0]], dtype=float))
+                             _np.array([[1,0,0],[0,1,0]], dtype=float),
+                             cell_size_m=getattr(report, "cell_size_m", None))
         edge_iou   = sc["edge_iou"]
         edge_lift  = sc["edge_lift"]
         edge_base  = sc["edge_baseline"]
@@ -519,7 +520,8 @@ def _render_component_stats_table(report) -> str:
         from .align import building_mask
         from .report_plots import building_component_stats
 
-        stl_mask = building_mask(report.stl_heightmap, source="stl")
+        stl_mask = building_mask(report.stl_heightmap, source="stl",
+                                  cell_size_m=getattr(report, "cell_size_m", None))
         osm_mask = building_mask(report.osm_heightmap, source="osm")
 
         # Cell sizes in metres:

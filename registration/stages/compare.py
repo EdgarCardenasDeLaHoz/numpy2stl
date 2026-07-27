@@ -19,7 +19,7 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
                     veg_mask, water_mask, refine_polygons, reg_dict, chosen_projection,
                     prism_polys, bx, by, resolution, eff_stl_file, stl_z_axis,
                     detect_resolution_factor, regularize_footprints,
-                    mesh_to_heightmap, timed, step_timings):
+                    mesh_to_heightmap, timed, step_timings, elevated_roadway_mask=None):
     """Stages 4–5 — warp + mask + height comparison, optional polygon-ICP, footprints.
 
     `stl_hm` is the heightmap to compare (the prism-model render in prism mode; the
@@ -56,13 +56,17 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
             # working-res, dense (p50) split — many STL cells per OSM footprint.
             bmask = _building_mask(s_al, source="stl", cell_size_m=cell_size_m,
                                    segment_features=True, fill_holes_px=None)
-        # Exclude STL cells OSM labels as vegetation or water (trees/rivers).
-        if veg_mask is not None or water_mask is not None:
+        # Exclude STL cells OSM labels as vegetation, water, or an elevated
+        # roadway (bridges/overpasses rise above local terrain the same way a
+        # building does, but have no OSM building footprint to match against).
+        if veg_mask is not None or water_mask is not None or elevated_roadway_mask is not None:
             exclude = np.zeros(bmask.shape, dtype=bool)
             if veg_mask is not None and veg_mask.shape == exclude.shape:
                 exclude |= veg_mask
             if water_mask is not None and water_mask.shape == exclude.shape:
                 exclude |= water_mask
+            if elevated_roadway_mask is not None and elevated_roadway_mask.shape == exclude.shape:
+                exclude |= elevated_roadway_mask
             bmask &= ~exclude
         resid, _ = _terrain_residual(s_al, cell_size_m=cell_size_m)
         s_cmp = resid.copy()
@@ -142,6 +146,15 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
         except Exception as _exc:
             logger.warning("Prism polygon mapping failed (%s); using hi-res detect.", _exc)
             stl_polygons = None
+    # KNOWN GAP: unlike _warp_mask_compare's bmask above, this hi-res detection
+    # pass has no vegetation/water/elevated_roadway exclusion — mask_hi can
+    # still include buildings misdetected on excluded terrain (e.g. an elevated
+    # highway ramp segmenting as a "building"). This is the path used for the
+    # report's footprint plots whenever detect_resolution_factor > 1 (the
+    # default), so a false positive fixed in comp_result.footprint_iou can
+    # still visibly appear in render_mask_overlay_png/footprint_rgchannel.
+    # TODO: thread veg_mask/water_mask/elevated_roadway_mask through here too
+    # (need to upsample/resize them to det_res first).
     if stl_polygons is None and detect_factor > 1:
         try:
             from ..align import vectorize_buildings as _vec

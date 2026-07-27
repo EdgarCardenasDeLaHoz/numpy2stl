@@ -67,6 +67,22 @@ class CityRegistrationReport:
     registration: RegistrationResult
     comparison: ComparisonResult
     step_timings: list              # list[tuple[str, float]] — [(step_name, wall_sec), ...]
+    osm_bbox: tuple | None = None   # (N, S, E, W) actually used for the OSM fetch — may be a
+                                     # tight bbox from estimate_bbox_from_stl(), not the full
+                                     # city_name geocode a caller may have used separately
+    cell_size_m: float | None = None  # metres/pixel of stl_heightmap/osm_heightmap (the report-
+                                       # resolution grid) — NOT the search-resolution grid's cell
+                                       # size (cell_size_m_reg); pass this to building_mask/
+                                       # building_edges/terrain_residual when re-deriving masks
+                                       # for report plots, or the top-hat kernel silently falls
+                                       # back to resolution-naive pixel sizing
+    stl_building_mask: np.ndarray | None = None  # (rows, cols) bool — the STL building mask
+                                       # actually used for comp_result, in OSM/osm_heightmap
+                                       # space, AFTER vegetation/water/elevated-roadway exclusion.
+                                       # Report plots should prefer this over re-deriving their
+                                       # own mask from stl_aligned/stl_heightmap, which would
+                                       # silently skip the exclusion and show a misleading
+                                       # (unexcluded) footprint.
     scale_sweep:    tuple = ()          # [(scale, edge_iou), ...]
     rot_sweep:      tuple = ()          # [(rotation_deg, edge_iou), ...]
     _hist_src:      object = None       # line-angle histogram for STL edges

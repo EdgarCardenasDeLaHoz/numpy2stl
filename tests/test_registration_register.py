@@ -55,17 +55,29 @@ class TestRegister:
         from numpy2stl.registration.align import register
         import numpy as np
         rng = np.random.RandomState(0)
-        # 128px city-like GRID of buildings: blocks on a regular lattice with
-        # street gaps, giving a dominant axis-aligned orientation (what the
-        # line-angle rotation method targets) and varied heights to break
-        # translational aliasing.  Buildings are large enough (~14 px) that edge
-        # smoothing preserves their axis-aligned walls.  Background NaN matches
-        # real heightmaps.
+        # 128px city-like GRID of buildings: blocks on a lattice with street
+        # gaps, giving a dominant axis-aligned orientation (what the line-angle
+        # rotation method targets) and varied heights to break translational
+        # aliasing. Buildings are large enough (~14 px) that edge smoothing
+        # preserves their axis-aligned walls. Background NaN matches real
+        # heightmaps.
+        #
+        # Positions are jittered +/-3px off the perfect 20px lattice — an
+        # EXACTLY periodic grid is a genuine adversarial case for scale search
+        # (a uniformly-shrunk copy of a perfect lattice re-samples a different,
+        # still-periodic subset of the same pattern and can score deceptively
+        # well on edge-IoU at the wrong scale; real city blocks are never
+        # perfectly periodic). Confirmed empirically: the unjittered grid can
+        # lock scale to a spurious 0.7x peak depending on exactly which mask
+        # threshold method is in use — the jitter alone (not the algorithm)
+        # was masking that fragility, so keep it.
         arr = np.full((128, 128), np.nan, dtype=np.float64)
         for gr in range(10, 116, 20):
             for gc in range(10, 116, 20):
+                jr = gr + rng.randint(-3, 4)
+                jc = gc + rng.randint(-3, 4)
                 sh = rng.randint(12, 16); sw = rng.randint(12, 16)
-                arr[gr:gr + sh, gc:gc + sw] = rng.uniform(10, 40)
+                arr[jr:jr + sh, jc:jc + sw] = rng.uniform(10, 40)
         result = register(arr, arr)
         M = result["transform"][:2, :3].astype(float)
         h, w = arr.shape

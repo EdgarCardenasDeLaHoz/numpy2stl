@@ -237,17 +237,23 @@ def register_city_stl(
         except Exception as _exc:
             logger.warning("Lidar height source failed (%s); using OSM tags.", _exc)
 
-    # 2b2. Fetch vegetation/water semantic masks on the same grid — used to
-    # exclude trees/water misread as STL buildings before comparison.
+    # 2b2. Fetch vegetation/water/elevated-roadway semantic masks on the same
+    # grid — used to exclude trees/water/overpasses misread as STL buildings
+    # before comparison. Elevated highways/bridges rise above local terrain in
+    # the STL the same way a building does (measured false-positive source,
+    # e.g. Miami's elevated ramps segmenting as "buildings"), but OSM has no
+    # building footprint there to match against, so they're excluded rather
+    # than compared.
     try:
         from ..applications.cities import get_osm_semantic_masks
         sem = _timed("Fetch OSM semantic masks", get_osm_semantic_masks,
                      osm_fetch_target, resolution=resolution)
         veg_mask = sem["vegetation"]
         water_mask = sem["water"]
+        elevated_roadway_mask = sem.get("elevated_roadway")
     except Exception as _exc:
         logger.warning("OSM semantic masks unavailable (%s); skipping exclusion.", _exc)
-        veg_mask = water_mask = None
+        veg_mask = water_mask = elevated_roadway_mask = None
 
     # 2b3. Resolution-independent registration inputs.  Run the SEARCH at a fixed
     # canonical resolution (REGISTER_RES) so the transform is identical for any
@@ -328,7 +334,8 @@ def register_city_stl(
     # polygons.  See _run_comparison (stl_hm is the prism render in prism mode).
     _cmp = _run_comparison(
         stl_hm, osm_hm, reg_result, cell_size_m=cell_size_m, height_scale=height_scale,
-        veg_mask=veg_mask, water_mask=water_mask, refine_polygons=refine_polygons,
+        veg_mask=veg_mask, water_mask=water_mask, elevated_roadway_mask=elevated_roadway_mask,
+        refine_polygons=refine_polygons,
         reg_dict=reg_dict, chosen_projection=chosen_projection, prism_polys=_prism_polys,
         bx=bx, by=by, resolution=resolution, eff_stl_file=eff_stl_file,
         stl_z_axis=stl_z_axis, detect_resolution_factor=detect_resolution_factor,
@@ -361,6 +368,9 @@ def register_city_stl(
         registration=reg_result,
         comparison=comp_result,
         step_timings=step_timings,
+        osm_bbox=(N_, S_, E_, W_),
+        cell_size_m=cell_size_m,
+        stl_building_mask=stl_building_mask,
         scale_sweep=tuple(scale_sweep),
         rot_sweep=tuple(rot_sweep),
         _hist_src=hist_src,
