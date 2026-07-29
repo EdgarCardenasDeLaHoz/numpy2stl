@@ -185,6 +185,86 @@ class TestScaleSelectionRobustness:
         )
 
 
+class TestLockedScaleFreeNudge:
+    """Regression test for the free_scale +-5% nudge on a LOCKED (anchored) scale.
+
+    Found via a real Miami STL: with a geometric anchor (scale locked to
+    0.667x = 1/osm_margin), two INDEPENDENT data-driven estimates — the
+    Dice/edge-IoU sweep peak (~0.675x) and a separate Fourier profile match
+    (~0.680x) — agreed with each other and both disagreed with the anchor by
+    ~1-2%. That's small but real: on a 2km real-world footprint it's ~24-40m
+    of drift at the frame edge, and it's a plausible mismeasurement of a
+    commercial STL pack's rounded "~2km" size-tier estimate, not noise.
+
+    Exercises the exact decision logic added to global_search.py's locked-
+    scale branch directly, mirroring the pattern already used above for the
+    unlocked-scale Dice-peak test (avoids the brittleness of reproducing this
+    through the full building_mask/threshold pipeline on synthetic data).
+    """
+
+    def test_nudges_toward_sharp_nearby_peak_within_5_percent(self):
+        """A sharp Dice peak just outside the anchor (Miami: anchor 0.667,
+        peak ~0.675) should nudge the locked scale toward it."""
+        anchor = 0.667
+        scale_metrics: dict[float, tuple[float, float, float]] = {}
+        scales = [round(anchor - 0.45 + 0.025 * i, 3) for i in range(37)]
+        for s in scales:
+            dice = max(0.0, 0.94 - 6.0 * (s - 0.675) ** 2)
+            iou = max(0.0, 0.50 - 3.0 * (s - 0.675) ** 2)
+            xcorr = -0.05
+            scale_metrics[s] = (dice, iou, xcorr)
+
+        sc = anchor
+        _lo, _hi = 0.95 * sc, 1.05 * sc
+        dice_by_scale = {k: v[0] for k, v in scale_metrics.items()}
+        cand = {k: v for k, v in dice_by_scale.items() if _lo - 1e-9 <= k <= _hi + 1e-9}
+        assert len(cand) >= 3
+        dice_vals = sorted(dice_by_scale.values())
+        dice_median = dice_vals[len(dice_vals) // 2]
+        sc_peak = max(cand, key=cand.get)
+        peak_val = cand[sc_peak]
+        ks = sorted(cand)
+        at_window_edge = sc_peak in (ks[0], ks[-1])
+        _FREE_ANCHOR_MARGIN = 0.10
+
+        assert not at_window_edge
+        assert (peak_val - dice_median) >= _FREE_ANCHOR_MARGIN
+        assert abs(sc_peak - 0.675) < 0.02, (
+            f"nudge landed at {sc_peak}, not near the measured Miami Dice peak (0.675)"
+        )
+        # Bounded: even a sharp peak can never move the result outside +-5%.
+        assert 0.95 * anchor <= sc_peak <= 1.05 * anchor
+
+    def test_does_not_nudge_when_peak_is_flat_no_sharp_signal(self):
+        """A flat/noisy Dice curve near the anchor (no real optimum) must NOT
+        trigger a nudge — this is the exact failure mode that made a prior
+        attempt at trusting raw area-ratio/Fourier estimates drift wildly
+        wrong on some cities (1.25x/1.67x, see pipeline.py's estimate_scale()
+        comment); the +-5% window bounds the worst case, but a flat signal
+        inside that window should still keep the anchor, not chase noise."""
+        anchor = 0.667
+        rng_vals = [0.30, 0.31, 0.29, 0.305, 0.315, 0.295, 0.30, 0.31, 0.29]
+        scales = [round(anchor - 0.45 + 0.025 * i, 3) for i in range(37)]
+        scale_metrics = {
+            s: (rng_vals[i % len(rng_vals)], 0.15, -0.05) for i, s in enumerate(scales)
+        }
+
+        sc = anchor
+        _lo, _hi = 0.95 * sc, 1.05 * sc
+        dice_by_scale = {k: v[0] for k, v in scale_metrics.items()}
+        cand = {k: v for k, v in dice_by_scale.items() if _lo - 1e-9 <= k <= _hi + 1e-9}
+        dice_vals = sorted(dice_by_scale.values())
+        dice_median = dice_vals[len(dice_vals) // 2]
+        sc_peak = max(cand, key=cand.get)
+        peak_val = cand[sc_peak]
+        _FREE_ANCHOR_MARGIN = 0.10
+
+        assert (peak_val - dice_median) < _FREE_ANCHOR_MARGIN, (
+            "test fixture should NOT have a sharp peak — if it does, the test "
+            "isn't exercising the no-nudge path"
+        )
+
+
 class TestRotationRefinementRobustness:
     """Regression test for the rotation edge-IoU refinement fix.
 

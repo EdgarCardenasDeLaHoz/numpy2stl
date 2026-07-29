@@ -489,6 +489,41 @@ def register_global(
     elif _use_polys:
         logger.info("  scale = geometric anchor %.4f (1/osm_margin; polygon lines drive "
                     "ROTATION only — scale is geometric, free_scale=off)", sc)
+    elif scale_search <= 0.0 and free_scale and scale_metrics:
+        # OPT-IN small nudge (free_scale, non-polygon path): the geometric anchor
+        # assumes the OSM fetch bbox landed at EXACTLY osm_margin x the STL
+        # footprint, but that's only as good as the upstream footprint-size
+        # estimate (e.g. a commercial STL pack's rounded "~2km" size tier) — a
+        # small, real mismatch there shows up as a small, consistent scale bias.
+        # Deliberately narrower than the polygon path's +-10% window: a prior
+        # attempt to trust the raw area-ratio/Fourier estimate directly caused
+        # wild drift on some cities (a dense grid pushed it to 1.25x/1.67x — see
+        # pipeline.py's estimate_scale() comment) — the failure mode this must
+        # not reintroduce is "confidently wrong by a lot", not "slightly right".
+        # So: only nudge within +-5% of the anchor (a mismeasured footprint size
+        # is a few-percent error, not tens of percent), and only when the Dice
+        # peak clears the same sharpness bar as the unlocked-scale path uses.
+        _lo, _hi = 0.95 * sc, 1.05 * sc
+        dice_by_scale = {k: v[0] for k, v in scale_metrics.items()}
+        cand = {k: v for k, v in dice_by_scale.items() if _lo - 1e-9 <= k <= _hi + 1e-9}
+        if len(cand) >= 3:
+            dice_vals = sorted(dice_by_scale.values())
+            dice_median = dice_vals[len(dice_vals) // 2]
+            sc_peak = max(cand, key=cand.get)
+            peak_val = cand[sc_peak]
+            ks = sorted(cand)
+            at_window_edge = sc_peak in (ks[0], ks[-1])
+            _FREE_ANCHOR_MARGIN = 0.10
+            if not at_window_edge and (peak_val - dice_median) >= _FREE_ANCHOR_MARGIN:
+                logger.info("  scale: anchor %.4f nudged to sharp Dice peak %.4f "
+                            "(within +-5%%, free_scale)", sc, sc_peak)
+                sc = float(sc_peak)
+            else:
+                logger.info("  scale LOCKED to anchor %.4f (free_scale on, but no sharp "
+                            "peak within +-5%%)", sc)
+        else:
+            logger.info("  scale LOCKED to anchor %.4f (free_scale on, too few sweep "
+                        "points in +-5%% window)", sc)
     elif scale_search <= 0.0:
         logger.info("  scale LOCKED to anchor %.4f (no xcorr re-pick)", sc)
     elif scale_metrics:
