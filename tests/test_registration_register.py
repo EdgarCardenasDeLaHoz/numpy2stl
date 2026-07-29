@@ -265,6 +265,71 @@ class TestLockedScaleFreeNudge:
         )
 
 
+class TestL0AbsoluteCorrelationFloor:
+    """Regression test for the L0 height-correlation absolute-floor guard.
+
+    Found via a real Bilbao STL: with a geometric anchor, L0's orientation
+    candidates all scored weakly or negatively — {0.2°: -0.095, 90.2°: -0.03,
+    -179.8°: 0.13, -89.8°: 0.093} — none is a real correlation, but -179.8°
+    cleared the OLD relative-margin check ("beat the near-0° candidate by
+    >=0.15") anyway, because near-0°'s own score was negative, making the
+    bar trivial to clear. The 180°-flipped candidate won, overriding a
+    correct ~0° histogram answer. This is the same failure class as
+    TestScaleSelectionRobustness's fix (a weak/noisy signal getting trusted)
+    but via the ROTATION candidate scoring, not scale.
+
+    Exercises the exact decision logic in global_search.py's L0 candidate-
+    selection block directly, using Bilbao's real measured scores.
+    """
+
+    def test_weak_candidate_does_not_win_on_relative_margin_alone(self):
+        """None of Bilbao's 4 candidates has real correlation signal — the
+        absolute floor should keep the near-0° (histogram) candidate, not
+        the 180°-flipped one that barely beat a negative baseline."""
+        # (rotation, height_corr) — Bilbao's real measured L0 scores.
+        scored = [(0.2, -0.095), (90.2, -0.03), (-179.8, 0.13), (-89.8, 0.093)]
+
+        _STRONG_MARGIN = 0.15
+        _MIN_ABS_CORR = 0.15
+        near0 = min(scored, key=lambda s: abs(s[0]))
+        assert near0 == (0.2, -0.095)
+
+        # OLD logic (relative margin only) — reproduces the bug.
+        strong_old = [s for s in scored if s[1] > near0[1] + _STRONG_MARGIN]
+        assert strong_old, "fixture should reproduce the bug under the old logic"
+        chosen_old = max(strong_old, key=lambda s: s[1])
+        assert chosen_old[0] == -179.8, (
+            "test fixture should reproduce the original 180°-flip bug under old logic"
+        )
+
+        # NEW logic (relative margin AND absolute floor) — the fix.
+        strong_new = [s for s in scored
+                      if s[1] > near0[1] + _STRONG_MARGIN and s[1] >= _MIN_ABS_CORR]
+        chosen_new = max(strong_new, key=lambda s: s[1]) if strong_new else near0
+        assert chosen_new == near0, (
+            f"fix should fall back to the near-0° histogram candidate {near0}, "
+            f"got {chosen_new} — none of Bilbao's candidates clears the absolute floor"
+        )
+
+    def test_genuinely_rotated_grid_still_overrides_when_signal_is_real(self):
+        """A candidate with REAL correlation signal (clears both the relative
+        margin AND the absolute floor) must still be able to override the 0°
+        bias — the floor should reject noise, not genuine rotated grids."""
+        scored = [(2.0, 0.05), (92.0, 0.45), (-178.0, 0.02), (-88.0, -0.01)]
+        _STRONG_MARGIN = 0.15
+        _MIN_ABS_CORR = 0.15
+        near0 = min(scored, key=lambda s: abs(s[0]))
+        assert near0 == (2.0, 0.05)
+
+        strong = [s for s in scored
+                  if s[1] > near0[1] + _STRONG_MARGIN and s[1] >= _MIN_ABS_CORR]
+        chosen = max(strong, key=lambda s: s[1]) if strong else near0
+        assert chosen == (92.0, 0.45), (
+            "a candidate with genuine, strong correlation signal should still "
+            "win — the absolute floor must not block real rotated-grid detection"
+        )
+
+
 class TestRotationRefinementRobustness:
     """Regression test for the rotation edge-IoU refinement fix.
 

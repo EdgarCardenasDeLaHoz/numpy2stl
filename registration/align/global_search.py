@@ -45,6 +45,7 @@ def register_global(
     forced_rotation: float | None = None,
     source_mask: np.ndarray | None = None,
     free_scale: bool = False,
+    source_exclude_mask: np.ndarray | None = None,
 ) -> dict:
     """
     Global registration via cross-correlation + IoU scoring.
@@ -56,6 +57,18 @@ def register_global(
     orientation histogram and the footprint edges come from the mask, and scale is
     SWEPT (never locked) and chosen by the footprint edge-IoU peak.  Translation
     still uses the raw heightmap cross-correlation (its base-plate anchor).
+
+    `source_exclude_mask` (optional): cells in `source` (the STL heightmap) to
+    treat as non-building regardless of height — vegetation/hillside/water from
+    OSM semantic tags, on the SAME grid as `source`. Passed to every
+    building_mask/building_edges("stl", ...) call the search makes. Matters a
+    lot on hilly cities: a hillside wider than the building-scale top-hat
+    kernel can't be removed by the kernel itself, floods the STL mask (measured
+    on Salzburg: 66.6% of frame vs 29.1% OSM ground truth), and corrupts BOTH
+    the edge-IoU search signal and the L0 height-correlation rotation
+    disambiguator (measured: it scored the CORRECT rotation candidate negative
+    and a wrong 90°-family candidate positive, because the "overlap" it
+    correlated over was mostly hillside, not real buildings).
 
     For each (scale, rotation) candidate, FFT phase correlation finds the
     optimal translation in O(n log n) — replacing the O(N²) brute-force
@@ -90,6 +103,24 @@ def register_global(
     if se_f.shape != target.shape:
         se_f = cv2.resize(se_f, (w, h), interpolation=cv2.INTER_LINEAR)
 
+    # Zero the excluded (hillside/vegetation/water) cells out of the heightmap that
+    # drives the FFT translation cross-correlation.  On a hilly city the hill mass
+    # is far larger than any building and, left in, dominates the xcorr — it pulls
+    # the translation onto the hill instead of the buildings (measured on Salzburg:
+    # at the correct 0° rotation the raw-heightmap xcorr lands the model with only
+    # ~8 building px of OSM overlap, so registration collapses even once the rotation
+    # is right).  These cells are already excluded from the L0 height-correlation
+    # overlap; removing them here makes TRANSLATION building-driven too.  On a flat
+    # city the mask is empty/irrelevant, so this is a no-op.  se_f is used only for
+    # the xcorr score and the L0 overlap (both of which already ignore these cells) —
+    # NOT for any reported heightmap — so the blast radius is limited to translation.
+    if source_exclude_mask is not None:
+        _excl = np.asarray(source_exclude_mask)
+        if _excl.shape != se_f.shape:
+            _excl = cv2.resize(_excl.astype(np.uint8), (w, h),
+                               interpolation=cv2.INTER_NEAREST)
+        se_f[_excl.astype(bool)] = 0.0
+
     t_masks = time.perf_counter()
     substep_timings.append(("Build heightmaps", t_masks - t0))
     logger.info("  register_global substep: build heightmaps            %.2f s  (src valid=%d  tgt valid=%d)",
@@ -119,7 +150,8 @@ def register_global(
             _sm = cv2.resize(_sm, (w, h), interpolation=cv2.INTER_NEAREST)
         se_edges = (_sm - cv2.erode(_sm, np.ones((3, 3), np.uint8))).astype(np.float32)
     else:
-        se_edges = building_edges(source, source="stl", cell_size_m=cell_size_m).astype(np.float32)
+        se_edges = building_edges(source, source="stl", cell_size_m=cell_size_m,
+                                   exclude_mask=source_exclude_mask).astype(np.float32)
         if se_edges.shape != target.shape:
             se_edges = cv2.resize(se_edges, (w, h), interpolation=cv2.INTER_NEAREST)
 
@@ -280,6 +312,12 @@ def register_global(
     def _norm180(a):
         return ((a + 180.0) % 360.0) - 180.0
 
+    _se_excl_f = None
+    if source_exclude_mask is not None and source_exclude_mask.shape == source.shape:
+        _se_excl_f = source_exclude_mask.astype(np.float32)
+        if _se_excl_f.shape != target.shape:
+            _se_excl_f = cv2.resize(_se_excl_f, (w, h), interpolation=cv2.INTER_NEAREST)
+
     def _height_corr_at(sc, rot):
         dxv, dyv, _ = _xcorr_best(_warp_f(float(sc), float(rot)))
         Mr = cv2.getRotationMatrix2D((cx, cy), float(rot), float(sc)).astype(np.float32)
@@ -287,6 +325,15 @@ def register_global(
         Mr[1, 2] += dyv
         wse = cv2.warpAffine(se_f, Mr, (w, h), flags=cv2.INTER_LINEAR)
         both = (wse > 0) & (te_f > 0)
+        # Exclude hillside/vegetation/water cells from the correlation overlap —
+        # `wse > 0` alone can't tell a hill from a building (both are "positive
+        # elevation"), so without this a wide hillside dominates the "overlap"
+        # and the correlation measures hill-vs-OSM-building noise, not real
+        # structure agreement. Warped with nearest-neighbour + >0.5 threshold
+        # to stay a clean boolean mask through the same rotation as se_f.
+        if _se_excl_f is not None:
+            w_excl = cv2.warpAffine(_se_excl_f, Mr, (w, h), flags=cv2.INTER_NEAREST) > 0.5
+            both = both & ~w_excl
         if int(both.sum()) < 50:
             return -1.0, dxv, dyv
         a = wse[both].astype(np.float64)
@@ -317,8 +364,34 @@ def register_global(
     # (clear evidence of a genuinely rotated grid, e.g. Denver) — otherwise use a
     # manual `forced_rotation`.
     _STRONG_MARGIN = 0.15
+    # Absolute floor: the *relative* margin above alone is fragile when near0's
+    # own score is weak or negative (no real correlation signal either way) —
+    # a barely-positive candidate can then "beat near0 by 0.15" trivially and
+    # win purely on being less-bad, not on genuine structural agreement.
+    # Measured on Bilbao: candidates scored {0.2°: -0.095, 90.2°: -0.03,
+    # -179.8°: 0.13, -89.8°: 0.093} — none is a real correlation, but -179.8°
+    # cleared the relative margin anyway and won, flipping a correct ~0°
+    # histogram answer to a wrong 180°. Require the winner to ALSO clear an
+    # absolute correlation floor, not just out-score a bad baseline.
+    _MIN_ABS_CORR = 0.15
     near0 = min(scored, key=lambda s: abs(s[0]))          # closest to 0°
-    strong = [s for s in scored if s[1] > near0[1] + _STRONG_MARGIN]
+    # Sentinel guard: _height_corr_at returns exactly -1.0 when it could NOT measure
+    # a correlation at a candidate (its xcorr translation landed <50 px of building
+    # overlap, or a degenerate constant overlap).  That is "unmeasurable", not "a real
+    # low correlation".  On hill-dominated cities the raw-heightmap xcorr translation
+    # fails at the UN-rotated pose specifically — the hillside outweighs the buildings
+    # and pulls the translation off, so near0 comes back as this sentinel (measured on
+    # Salzburg: 0° → 8 px overlap → -1.0, while a wrong 90° flip found a large
+    # hillside-vs-OSM overlap scoring a spurious +0.254 and won the override).  When
+    # near0 is a sentinel there is no valid baseline for a rotated candidate to "beat",
+    # so the override has no evidence behind it — fall back to the 0° bias.  The
+    # histogram itself already fixes the grid mod 90°; keeping near0 respects it.
+    _SENTINEL = -1.0
+    near0_unmeasured = near0[1] <= _SENTINEL + 1e-9
+    strong = [s for s in scored
+              if s[1] > near0[1] + _STRONG_MARGIN and s[1] >= _MIN_ABS_CORR]
+    if near0_unmeasured:
+        strong = []   # no valid near-0 baseline → do not let a spurious flip override
     chosen_s = max(strong, key=lambda s: s[1]) if strong else near0
     rc, hc, dx_b, dy_b = chosen_s
     best = (sc0, float(rc), dx_b, dy_b, hc)

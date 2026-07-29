@@ -299,6 +299,43 @@ def register_city_stl(
             logger.info("Scale: manual override=%.3f  [estimate area=%.3f fourier=%.3f]",
                         known_scale, est["area_scale"], est["fourier_scale"])
 
+    # Combine vegetation/water/elevated-roadway (OSM tags) with a hill-relief
+    # detector (STL's own elevation, tag-independent) into one exclude mask
+    # for the SEARCH grid (stl_reg — may be a different resolution than
+    # veg_mask/etc, which were fetched at the output `resolution`; resize
+    # with nearest-neighbour to keep it a clean boolean mask). A wide,
+    # compact terrain feature (e.g. a hillside) can't be removed by the
+    # building-scale top-hat kernel and otherwise corrupts both the edge-IoU
+    # search and the L0 height-correlation rotation disambiguator — see
+    # global_search.py's register_global() docstring (measured on Salzburg).
+    # OSM tags alone aren't enough: measured only ~32% coverage of Salzburg's
+    # actual hill pixels (exposed rock/paths/the hilltop fortress itself
+    # aren't tagged forest) — hill_relief_mask() catches the rest via the
+    # STL's own broad-scale elevation, independent of tag completeness.
+    search_exclude_mask = None
+    _combined = np.zeros(osm_hm.shape, dtype=bool)
+    _has_osm_exclusion = False
+    for _m in (veg_mask, water_mask, elevated_roadway_mask):
+        if _m is not None and _m.shape == _combined.shape:
+            _combined |= _m
+            _has_osm_exclusion = True
+    if _combined.shape != stl_reg.shape:
+        import cv2 as _cv2_local
+        _combined = _cv2_local.resize(
+            _combined.astype(np.uint8), (stl_reg.shape[1], stl_reg.shape[0]),
+            interpolation=_cv2_local.INTER_NEAREST).astype(bool)
+
+    from .align import hill_relief_mask
+    _hill_mask = hill_relief_mask(stl_reg, cell_size_m=cell_size_m_reg)
+    logger.info("Hill-relief mask (STL elevation, tag-independent): %.1f%% of search frame",
+                100.0 * _hill_mask.mean())
+    _combined = _combined | _hill_mask
+
+    if _has_osm_exclusion or _hill_mask.any():
+        search_exclude_mask = _combined
+        logger.info("Search exclude mask (veg/water/elevated-roadway + hill-relief): "
+                    "%.1f%% of search frame", 100.0 * search_exclude_mask.mean())
+
     # 3. Register (raster or polygon point-pattern), projection discovery + ECC
     # refine, then scale the transform to the output grid.  See _run_registration.
     _reg = _run_registration(
@@ -306,7 +343,8 @@ def register_city_stl(
         cell_size_m_reg=cell_size_m_reg, known_scale=known_scale,
         max_scale_ratio=max_scale_ratio, forced_rotation=forced_rotation,
         free_scale=free_scale, registration_method=registration_method,
-        refine=refine, resolution=resolution, timed=_timed, step_timings=step_timings)
+        refine=refine, resolution=resolution, timed=_timed, step_timings=step_timings,
+        source_exclude_mask=search_exclude_mask)
     reg_result        = _reg["reg_result"]
     transform         = _reg["transform"]
     chosen_projection = _reg["chosen_projection"]

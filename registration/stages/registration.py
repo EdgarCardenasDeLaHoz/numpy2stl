@@ -56,7 +56,8 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
 
 def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
                       known_scale, max_scale_ratio, forced_rotation, free_scale,
-                      registration_method, refine, resolution, timed, step_timings):
+                      registration_method, refine, resolution, timed, step_timings,
+                      source_exclude_mask=None):
     """Stage 3 — recover the STL→OSM similarity transform (raster or polygon).
 
     In PRISM mode the clean separated prism-polygon mask drives rotation+scale from
@@ -102,7 +103,8 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
             "Register (mask + ECC)", register, stl_reg, osm_reg,
             max_scale_ratio=max_scale_ratio, known_scale=known_scale,
             scale_search=scale_search, cell_size_m=cell_size_m_reg,
-            forced_rotation=forced_rotation, source_mask=_reg_src_mask, free_scale=free_scale)
+            forced_rotation=forced_rotation, source_mask=_reg_src_mask, free_scale=free_scale,
+            source_exclude_mask=source_exclude_mask)
     for sub_name, sub_t in reg_dict.get("substep_timings", []):
         step_timings.append((f"↳ {sub_name}", sub_t))
     transform = reg_dict["transform"]

@@ -33,9 +33,15 @@ def register(
     forced_rotation: float | None = None,
     source_mask: np.ndarray | None = None,
     free_scale: bool = False,
+    source_exclude_mask: np.ndarray | None = None,
 ) -> dict:
     """Find the 2-D similarity transform aligning `source` (STL heightmap) onto
     `target` (OSM raster) via the deterministic global edge-IoU search.
+
+    `source_exclude_mask`: cells in `source` to treat as non-building
+    regardless of height (vegetation/hillside/water) — see
+    global_search.register_global()'s docstring for why this matters on
+    hilly cities.
 
     Returns
     -------
@@ -48,4 +54,5 @@ def register(
         source, target, scale_prior=known_scale, scale_search=scale_search,
         cell_size_m=cell_size_m, forced_rotation=forced_rotation,
         source_mask=source_mask, free_scale=free_scale,
+        source_exclude_mask=source_exclude_mask,
     )

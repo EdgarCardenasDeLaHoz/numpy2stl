@@ -146,6 +146,65 @@ def terrain_residual(
     return residual, valid
 
 
+def hill_relief_mask(
+    heightmap: np.ndarray,
+    cell_size_m: float | None = None,
+    hill_sigma_m: float = 120.0,
+    hill_thresh_m: float = 3.0,
+    base_percentile: float = 10.0,
+) -> np.ndarray:
+    """
+    Flag cells that sit on broad, hill-scale elevated terrain — independent of
+    any OSM tags, which don't reliably cover every square metre of a hillside
+    (exposed rock, paths, or a real building like a hilltop fortress).
+
+    terrain_residual()'s top-hat kernel is sized to BUILDING scale (~80m) —
+    a hillside spanning hundreds of metres is far wider than that kernel can
+    ever remove by opening, so it floods straight through as "building".
+    This is a second, much-wider-scale signal: heavily Gaussian-blur the
+    heightmap (sigma sized in real metres, hill-scale not building-scale) so
+    individual buildings average out but a whole hillside stays elevated in
+    the blurred result, then flag cells where that SMOOTHED elevation is
+    meaningfully above the frame's low/base elevation. Meant to be OR'd into
+    an exclude_mask alongside OSM vegetation/water tags (see
+    building_mask()'s exclude_mask param) — the two catch different parts of
+    a real hillside (OSM often tags forest; this catches the untagged rock/
+    grass/path area between), not a replacement for either alone.
+
+    Validated on Salzburg (Kapuzinerberg/Mönchsberg — two steep, compact
+    hills through the historic core): sigma=120m/thresh=3m matches the two
+    hills' visible extent closely and doesn't touch the flat valley-floor
+    building grid; OSM vegetation/water/bridge tags alone only covered ~32%
+    of the STL's actual high-elevation pixels there.
+
+    Returns
+    -------
+    bool ndarray, same shape as `heightmap` — True where terrain is
+    "hill-like" (broadly, smoothly elevated at scales much larger than a
+    building).
+    """
+    arr = heightmap.astype(np.float32)
+    valid = ~np.isnan(arr)
+    if not valid.any():
+        return np.zeros(heightmap.shape, dtype=bool)
+    fill = float(np.nanmedian(arr[valid])) if valid.any() else 0.0
+    arr = np.where(valid, arr, fill).astype(np.float32)
+
+    if cell_size_m is not None and cell_size_m > 0:
+        sigma_px = max(1.0, hill_sigma_m / cell_size_m)
+    else:
+        sigma_px = max(1.0, min(arr.shape) / 8.0)   # legacy pixel sizing fallback
+    k = int(sigma_px * 6) | 1
+    k = max(3, min(k, max(3, min(arr.shape) - 1)))
+    if HAS_CV2:
+        blurred = cv2.GaussianBlur(arr, (k, k), sigma_px)
+    else:
+        blurred = arr  # no-op fallback — degrades to "never hill-like", not a crash
+
+    base = float(np.nanpercentile(arr[valid], base_percentile))
+    return valid & ((blurred - base) > hill_thresh_m)
+
+
 def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle") -> tuple[float, str]:
     """
     Pick a ground/building threshold on the terrain-residual distribution
@@ -199,6 +258,7 @@ def building_mask(
     threshold_method: str = "triangle",
     fill_holes_px: int | None = 0,
     split_watershed: bool = False,
+    exclude_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Convert a heightmap into a binary building-presence mask.
@@ -224,6 +284,20 @@ def building_mask(
         absolute height is dominated by topography rather than buildings.
     min_blob_px : int
         Remove connected components smaller than this (speckle).
+    exclude_mask : (rows, cols) bool, optional
+        STL-source only. Cells to treat as non-building regardless of height
+        — e.g. vegetation/hillside/water from OSM semantic tags. Excluded
+        BEFORE the top-hat/threshold computation (not just masked out of the
+        final result), because a large excluded region (a hillside wider
+        than the top-hat kernel) otherwise contaminates the terrain estimate
+        and the adaptive threshold's residual distribution for the WHOLE
+        frame, not just its own footprint — measured on Salzburg: a
+        forested hillside occupying ~26% of the frame, wider than the
+        building-scale top-hat kernel could ever remove, pushed STL mask
+        coverage to 66.6% of the frame (vs OSM ground truth 29.1%) and
+        drove the height-correlation rotation disambiguator to score the
+        CORRECT rotation candidate negative (see F-SKY docs / global_search.py
+        L0 orientation logic — this is what exclude_mask is for).
 
     Returns
     -------
@@ -234,6 +308,15 @@ def building_mask(
         mask = ~np.isnan(heightmap)
     else:
         arr = heightmap.copy().astype(np.float64)
+        if exclude_mask is not None and exclude_mask.shape == arr.shape:
+            # NaN-out excluded cells (not just AND into `valid` below) so
+            # terrain_residual() — which derives its OWN valid mask from
+            # np.isnan(arr) and doesn't otherwise know about exclude_mask —
+            # excludes them from the top-hat's terrain fill AND the returned
+            # residual/valid used for the adaptive threshold statistics. A
+            # large excluded region (e.g. a hillside) contaminates both if
+            # it's only filtered out of the FINAL mask instead.
+            arr[exclude_mask] = np.nan
         valid = ~np.isnan(arr)
         if threshold is None:
             if not valid.any():

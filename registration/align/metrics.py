@@ -111,10 +111,23 @@ def score_alignment(
     Returns
     -------
     dict:
-        'footprint_iou'      : IoU of filled building masks (inflated by density)
+        'footprint_iou'      : IoU of filled building masks over the FULL frame
+                               (deflated by the large empty margin around the STL)
         'footprint_baseline' : random-chance IoU at these mask densities
         'footprint_lift'     : footprint_iou / footprint_baseline (>1 = real signal)
-        'edge_iou'           : IoU of footprint *outline* masks (the honest metric)
+        'overlap_iou'        : IoU of the filled masks CROPPED to the STL extent —
+                               the honest filled-footprint-overlap number the
+                               footprint_rgchannel.png overlay reports in its title,
+                               and the metric that visually tracks alignment quality
+                               (~0.30–0.53 for good cities). This is the gate metric.
+        'overlap_baseline'   : random-chance IoU at the two mask densities in the crop
+        'overlap_lift'       : overlap_iou / overlap_baseline (context only — low for
+                               dense-grid cities even when genuine, so NOT a gate)
+        'overlap_precision'  : |both| / |STL footprint| in the crop — fraction of the
+                               model's footprint OSM confirms. Collapses on a broken /
+                               wrong-quadrant fit; the second gate factor.
+        'overlap_dice'       : Dice of the cropped filled masks, 2|both|/(|STL|+|OSM|)
+        'edge_iou'           : IoU of footprint *outline* masks (sparse; the old gate)
         'edge_baseline'      : random-chance edge IoU
         'edge_lift'          : edge_iou / edge_baseline (>~3 = genuine alignment)
         'footprint_dice'     : Dice coefficient of the filled masks (0–1)
@@ -143,6 +156,38 @@ def score_alignment(
     dice = float(2 * np.logical_and(s_mask, t_mask).sum()
                  / (s_mask.sum() + t_mask.sum())) if (s_mask.sum() + t_mask.sum()) > 0 else 0.0
 
+    # Filled-overlap IoU cropped to the STL extent — the honest alignment number.
+    # The full-frame footprint_iou above is diluted by the large empty OSM margin
+    # around the (smaller) STL footprint, so a badly-misaligned model can still read
+    # a middling full-frame IoU.  Cropping to the STL's own extent (plus a small
+    # margin) is exactly what the footprint_rgchannel.png overlay shows in its title,
+    # and it is what visually reflects whether the two footprints actually agree.
+    overlap_iou = iou
+    overlap_base = base
+    overlap_prec = float(np.logical_and(s_mask, t_mask).sum() / s_mask.sum()) if s_mask.sum() > 0 else 0.0
+    overlap_dice = dice
+    rows = np.where(s_mask.any(axis=1))[0]
+    cols = np.where(s_mask.any(axis=0))[0]
+    if len(rows) and len(cols):
+        mr = max(10, int((rows[-1] - rows[0]) * 0.05))
+        mc = max(10, int((cols[-1] - cols[0]) * 0.05))
+        r0, r1 = max(0, rows[0] - mr), min(s_mask.shape[0], rows[-1] + mr + 1)
+        c0, c1 = max(0, cols[0] - mc), min(s_mask.shape[1], cols[-1] + mc + 1)
+        s_crop, t_crop = s_mask[r0:r1, c0:c1], t_mask[r0:r1, c0:c1]
+        overlap_iou = _iou(s_crop, t_crop)
+        # Random-chance IoU at the two densities WITHIN the crop (kept for context).
+        overlap_base = _baseline(s_crop, t_crop)
+        inter_c = float(np.logical_and(s_crop, t_crop).sum())
+        ns, nt = float(s_crop.sum()), float(t_crop.sum())
+        # Precision = fraction of the STL model's footprint that OSM CONFIRMS.  A
+        # wrong-quadrant / misaligned model stamps large blocks where OSM has no
+        # building, so precision collapses even when the raw IoU (buoyed by a few
+        # coincidental grid hits) looks middling.  This is the factor that cleanly
+        # separates a visually-broken city (low precision) from a genuine one.
+        overlap_prec = inter_c / ns if ns > 0 else 0.0
+        # Dice of the cropped filled masks — symmetric agreement, in [0,1].
+        overlap_dice = (2.0 * inter_c / (ns + nt)) if (ns + nt) > 0 else 0.0
+
     # Edge masks — the honest signal (sparse outlines, low random baseline).
     s_edge = building_edges(aligned, source="stl")
     t_edge = building_edges(target, source="osm")
@@ -160,6 +205,11 @@ def score_alignment(
         "footprint_iou": iou,
         "footprint_baseline": base,
         "footprint_lift": float(iou / base) if base > 0 else float("nan"),
+        "overlap_iou": overlap_iou,
+        "overlap_baseline": overlap_base,
+        "overlap_lift": float(overlap_iou / overlap_base) if overlap_base > 0 else float("nan"),
+        "overlap_precision": overlap_prec,
+        "overlap_dice": overlap_dice,
         "edge_iou": edge_iou,
         "edge_baseline": edge_base,
         "edge_lift": float(edge_iou / edge_base) if edge_base > 0 else float("nan"),
