@@ -22,6 +22,13 @@ except ImportError:
     plt = None
     HAS_MPL = False
 
+try:
+    import cv2
+    HAS_CV2 = True
+except ImportError:
+    cv2 = None
+    HAS_CV2 = False
+
 
 # ---------------------------------------------------------------------------
 # Public render functions (one per asset PNG)
@@ -39,9 +46,18 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
 
       Row 1: STL heightmap | STL binary mask | STL footprint edges
       Row 2: OSM heightmap | OSM binary mask | OSM footprint edges
+      Row 3: STL Sobel gradient magnitude | OSM Sobel gradient magnitude | (blank)
 
     The STL mask is shown BEFORE alignment (raw model) so the binarization is
     transparent; the alignment is shown separately in the agreement overlay.
+
+    Row 3 shows the raw Sobel gradient magnitude that the rotation estimator
+    (gradient_angle_histogram in align/lines.py) actually reads wall
+    orientations from -- independent of building-mask segmentation quality.
+    Comparing it against the binary mask in row 1/2 makes it visible when the
+    two disagree (e.g. a dense mask blob vs. sharp gradient edges still
+    tracing individual buildings), which is a real, useful segmentation-
+    quality signal on its own.
     """
     out_path = Path(out_path)
     if not HAS_MPL:
@@ -51,6 +67,18 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
 
     stl = report.stl_heightmap
     osm = report.osm_heightmap
+
+    def _sobel_mag(img: np.ndarray) -> np.ndarray:
+        a = np.nan_to_num(np.asarray(img, dtype=np.float64))
+        if HAS_CV2:
+            gx = cv2.Sobel(a, cv2.CV_64F, 1, 0, ksize=3)
+            gy = cv2.Sobel(a, cv2.CV_64F, 0, 1, ksize=3)
+        else:
+            gy, gx = np.gradient(a)
+        return np.hypot(gx, gy)
+
+    stl_sobel = _sobel_mag(stl)
+    osm_sobel = _sobel_mag(osm)
 
     # cell_size_m sizes the STL top-hat kernel in real metres (see
     # terrain_residual()) — matches what register_global() actually uses during
@@ -78,7 +106,7 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
                 f"median={s['median_px']:.0f} px²  "
                 f"IQR [{s['p25_px']:.0f}–{s['p75_px']:.0f}]")
 
-    fig, ax = plt.subplots(2, 3, figsize=(16, 11))
+    fig, ax = plt.subplots(3, 3, figsize=(16, 16))
 
     # Row 1 — STL
     _imshow_heightmap(ax[0, 0], stl, "STL heightmap (model units)", "viridis", "#cccccc")
@@ -102,11 +130,26 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     ax[1, 2].set_title(f"OSM footprint edges  ({100*osm_edge.mean():.1f}%)\n"
                        "registration signal", fontsize=10)
 
+    # Row 3 — Sobel gradient magnitude (what the rotation histogram reads wall
+    # orientations from). log1p-scaled: gradient magnitude is heavy-tailed
+    # (a few strong building edges, lots of near-zero flat terrain/roof).
+    stl_sobel_disp = np.log1p(stl_sobel)
+    osm_sobel_disp = np.log1p(osm_sobel)
+    ax[2, 0].imshow(stl_sobel_disp, origin="lower", cmap="magma")
+    ax[2, 0].set_title("STL Sobel gradient magnitude (log scale)\n"
+                       "rotation histogram signal — segmentation-independent", fontsize=10)
+    ax[2, 1].imshow(osm_sobel_disp, origin="lower", cmap="magma")
+    ax[2, 1].set_title("OSM Sobel gradient magnitude (log scale)\n"
+                       "rotation histogram signal — segmentation-independent", fontsize=10)
+    ax[2, 2].axis("off")
+
     for a in ax.ravel():
         a.set_xlabel("col"); a.set_ylabel("row")
+    ax[2, 2].set_xlabel(""); ax[2, 2].set_ylabel("")
 
-    fig.suptitle("Binarization: heightmaps -> building masks -> edges "
-                 "(heights are noisy; registration uses the binary footprint)",
+    fig.suptitle("Binarization: heightmaps -> building masks -> edges -> gradient "
+                 "(heights are noisy; registration uses the binary footprint; "
+                 "rotation uses the raw gradient)",
                  fontsize=13)
     fig.tight_layout()
     fig.savefig(str(out_path), dpi=110, bbox_inches="tight")

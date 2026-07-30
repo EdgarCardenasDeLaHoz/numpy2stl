@@ -190,8 +190,29 @@ def compare(
     # footprint is its non-zero cells.  This is NOT conditioned on co-presence — the
     # old "& overlap" Dice counted only cells where both had buildings, so it read
     # ~1.0 by construction and hid real misalignment.
+    #
+    # osm_fp is restricted to stl_valid's bounding box: OSM is always fetched with
+    # a margin around the STL's own footprint (DEFAULT_OSM_MARGIN), so a large
+    # fraction of every frame is padding the STL was never going to cover —
+    # counting OSM buildings there against the union permanently caps the
+    # achievable IoU by how much padding was fetched, not by alignment quality.
+    # Measured on Paris: the STL fills ~1/1.5≈67% of the frame per axis (~42% of
+    # area) at osm_margin=1.5, and OSM building coverage is dense (58%) even in
+    # the padding — deflating IoU from a true ~0.53 (score_alignment's cropped
+    # overlap_iou over the same STL/OSM pair) down to ~0.25-0.33 for reasons
+    # having nothing to do with the transform. This mirrors the crop already
+    # applied to score_alignment's overlap_iou (align/metrics.py) and the
+    # rotation-IoU sweep in global_search.py — same fix, applied here too.
     stl_fp = stl_valid
     osm_fp = osm > 0
+    if stl_fp.any():
+        _rows = np.where(stl_fp.any(axis=1))[0]
+        _cols = np.where(stl_fp.any(axis=0))[0]
+        _r0, _r1 = int(_rows[0]), int(_rows[-1]) + 1
+        _c0, _c1 = int(_cols[0]), int(_cols[-1]) + 1
+        _crop = np.zeros_like(osm_fp)
+        _crop[_r0:_r1, _c0:_c1] = True
+        osm_fp = osm_fp & _crop
     inter = int((stl_fp & osm_fp).sum())
     union = int((stl_fp | osm_fp).sum())
     n_stl_fp = int(stl_fp.sum()); n_osm_fp = int(osm_fp.sum())

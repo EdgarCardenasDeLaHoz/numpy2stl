@@ -269,17 +269,28 @@ class TestL0AbsoluteCorrelationFloor:
     """Regression test for the L0 height-correlation absolute-floor guard.
 
     Found via a real Bilbao STL: with a geometric anchor, L0's orientation
-    candidates all scored weakly or negatively — {0.2°: -0.095, 90.2°: -0.03,
-    -179.8°: 0.13, -89.8°: 0.093} — none is a real correlation, but -179.8°
-    cleared the OLD relative-margin check ("beat the near-0° candidate by
-    >=0.15") anyway, because near-0°'s own score was negative, making the
+    candidates all scored weakly or negatively — {0.2°: -0.096, 90.2°: -0.022,
+    -179.8°: 0.16, -89.8°: 0.055} (this score is stable across runs but drifts
+    in the 0.13-0.16 range depending on unrelated code changes upstream of the
+    search, e.g. exclude-mask composition) — none is a real correlation, but
+    -179.8° cleared the OLD relative-margin check ("beat the near-0° candidate
+    by >=0.15") anyway, because near-0°'s own score was negative, making the
     bar trivial to clear. The 180°-flipped candidate won, overriding a
-    correct ~0° histogram answer. This is the same failure class as
-    TestScaleSelectionRobustness's fix (a weak/noisy signal getting trusted)
-    but via the ROTATION candidate scoring, not scale.
+    correct ~0° histogram answer.
 
-    Exercises the exact decision logic in global_search.py's L0 candidate-
-    selection block directly, using Bilbao's real measured scores.
+    A first fix used an absolute floor of 0.15 — too close to Bilbao's own
+    noise-band score (0.16), so it still failed intermittently. Recalibrated
+    against real L0 scores measured across all 8 Micropolitan test cities:
+    every city's noise-band candidates (no genuine grid match) topped out
+    around 0.01-0.16 (Bilbao 0.16, Salzburg 0.067, Lisbon 0.066, Valencia
+    0.036, Prague 0.011), while the one measured genuine match (Miami, a real
+    ~0°-aligned grid) scored 0.517 — an order of magnitude clear of the noise
+    band. 0.20 sits above every measured noise-band score with margin.
+
+    This is the same failure class as TestScaleSelectionRobustness's fix (a
+    weak/noisy signal getting trusted) but via the ROTATION candidate
+    scoring, not scale. Exercises the exact decision logic in
+    global_search.py's L0 candidate-selection block directly.
     """
 
     def test_weak_candidate_does_not_win_on_relative_margin_alone(self):
@@ -287,12 +298,12 @@ class TestL0AbsoluteCorrelationFloor:
         absolute floor should keep the near-0° (histogram) candidate, not
         the 180°-flipped one that barely beat a negative baseline."""
         # (rotation, height_corr) — Bilbao's real measured L0 scores.
-        scored = [(0.2, -0.095), (90.2, -0.03), (-179.8, 0.13), (-89.8, 0.093)]
+        scored = [(0.2, -0.096), (90.2, -0.022), (-179.8, 0.16), (-89.8, 0.055)]
 
         _STRONG_MARGIN = 0.15
-        _MIN_ABS_CORR = 0.15
+        _MIN_ABS_CORR = 0.20
         near0 = min(scored, key=lambda s: abs(s[0]))
-        assert near0 == (0.2, -0.095)
+        assert near0 == (0.2, -0.096)
 
         # OLD logic (relative margin only) — reproduces the bug.
         strong_old = [s for s in scored if s[1] > near0[1] + _STRONG_MARGIN]
@@ -317,7 +328,7 @@ class TestL0AbsoluteCorrelationFloor:
         bias — the floor should reject noise, not genuine rotated grids."""
         scored = [(2.0, 0.05), (92.0, 0.45), (-178.0, 0.02), (-88.0, -0.01)]
         _STRONG_MARGIN = 0.15
-        _MIN_ABS_CORR = 0.15
+        _MIN_ABS_CORR = 0.20
         near0 = min(scored, key=lambda s: abs(s[0]))
         assert near0 == (2.0, 0.05)
 

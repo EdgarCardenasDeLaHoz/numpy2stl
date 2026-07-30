@@ -150,8 +150,15 @@ def register_global(
             _sm = cv2.resize(_sm, (w, h), interpolation=cv2.INTER_NEAREST)
         se_edges = (_sm - cv2.erode(_sm, np.ones((3, 3), np.uint8))).astype(np.float32)
     else:
+        # allow_forced_split=False: the search must keep the exact mask
+        # structure it was tuned against — forcing a watershed split here
+        # (even though it improves report-quality segmentation elsewhere)
+        # can shift edge geometry enough to flip the L0 rotation
+        # disambiguator's candidate scores. See building_mask()'s
+        # allow_forced_split docstring (measured regression on Bilbao).
         se_edges = building_edges(source, source="stl", cell_size_m=cell_size_m,
-                                   exclude_mask=source_exclude_mask).astype(np.float32)
+                                   exclude_mask=source_exclude_mask,
+                                   allow_forced_split=False).astype(np.float32)
         if se_edges.shape != target.shape:
             se_edges = cv2.resize(se_edges, (w, h), interpolation=cv2.INTER_NEAREST)
 
@@ -369,11 +376,17 @@ def register_global(
     # a barely-positive candidate can then "beat near0 by 0.15" trivially and
     # win purely on being less-bad, not on genuine structural agreement.
     # Measured on Bilbao: candidates scored {0.2°: -0.095, 90.2°: -0.03,
-    # -179.8°: 0.13, -89.8°: 0.093} — none is a real correlation, but -179.8°
-    # cleared the relative margin anyway and won, flipping a correct ~0°
-    # histogram answer to a wrong 180°. Require the winner to ALSO clear an
-    # absolute correlation floor, not just out-score a bad baseline.
-    _MIN_ABS_CORR = 0.15
+    # -179.8°: 0.13-0.16 (varies run to run), -89.8°: 0.055-0.093} — none is a
+    # real correlation, but -179.8° cleared a 0.15 floor often enough to still
+    # flip a correct ~0° histogram answer to a wrong 180° (0.15 sat INSIDE
+    # Bilbao's noise band, not above it). Calibrated against real L0 scores
+    # across 8 cities: every city's noise-band candidates (no genuine grid
+    # match) topped out around 0.06-0.16 (Bilbao 0.16, Salzburg 0.067, Lisbon
+    # 0.066, Valencia 0.036, Prague 0.011), while a genuine match (Miami, a
+    # real ~0°-aligned grid) scored 0.517 -- an order of magnitude clear of
+    # the noise band. 0.20 sits above every measured noise-band score with
+    # margin and well below the one measured genuine signal.
+    _MIN_ABS_CORR = 0.20
     near0 = min(scored, key=lambda s: abs(s[0]))          # closest to 0°
     # Sentinel guard: _height_corr_at returns exactly -1.0 when it could NOT measure
     # a correlation at a candidate (its xcorr translation landed <50 px of building

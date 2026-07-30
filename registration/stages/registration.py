@@ -148,14 +148,19 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
     import math as _m
     _peak_scale = _m.hypot(transform[0, 0], transform[1, 0])  # scale before ECC
     from ..align import refine_transform as _refine_ecc, score_alignment as _score_align
-    _pre_iou = _score_align(stl_reg, osm_reg, transform)["edge_iou"]
+    # allow_forced_split=False throughout this accept/reject check: it must
+    # score the same mask structure the search was tuned against, not the
+    # report-quality segmentation (see building_mask()'s allow_forced_split
+    # docstring -- letting this default on re-broke Bilbao's already-fixed
+    # 180-degree-flip bug via this exact edge_iou accept/reject decision).
+    _pre_iou = _score_align(stl_reg, osm_reg, transform, allow_forced_split=False)["edge_iou"]
     t_ecc0 = time.perf_counter()
     try:
         _ecc = _refine_ecc(stl_reg, osm_reg, transform,
                            signal="sdf", motion="affine",
                            ecc_iterations=300, ecc_eps=1e-6, blur_sigma=1.5)
         _ecc_sim = _project_to_similarity(_ecc["transform"], keep_scale=_peak_scale)
-        _post_iou = _score_align(stl_reg, osm_reg, _ecc_sim)["edge_iou"]
+        _post_iou = _score_align(stl_reg, osm_reg, _ecc_sim, allow_forced_split=False)["edge_iou"]
         if _post_iou > _pre_iou:
             transform = _ecc_sim
             logger.info("ECC SDF refine accepted (shear-projected): edge IoU "

@@ -258,6 +258,7 @@ def building_mask(
     threshold_method: str = "triangle",
     fill_holes_px: int | None = 0,
     split_watershed: bool = False,
+    allow_forced_split: bool = True,
     exclude_mask: np.ndarray | None = None,
 ) -> np.ndarray:
     """
@@ -298,6 +299,17 @@ def building_mask(
         drove the height-correlation rotation disambiguator to score the
         CORRECT rotation candidate negative (see F-SKY docs / global_search.py
         L0 orientation logic — this is what exclude_mask is for).
+    allow_forced_split : bool
+        When True (default) and split_watershed=False, still force a
+        watershed split if a single connected component dominates the frame
+        (see the dense-core note below) — this is for report/vectorization
+        callers.  The registration SEARCH (global_search.py's building_edges
+        calls) sets this False: changing edge structure mid-search can flip
+        the L0 rotation disambiguator's candidate scores (measured: enabling
+        the forced split unconditionally flipped Bilbao's already-fixed
+        180°-flip bug back to 179.8°), so the search must keep exactly the
+        mask it was tuned against and only the report/footprint paths adopt
+        the better segmentation.
 
     Returns
     -------
@@ -457,8 +469,33 @@ def building_mask(
     # Separate merged building blobs (downtown blocks + the street between them)
     # so each footprint vectorizes individually.  STL only; OSM is already split
     # vector data.  Off by default to keep registration masks stable.
-    if split_watershed and source != "osm":
+    force_split = False
+    if HAS_CV2 and source != "osm" and not split_watershed and allow_forced_split and mask.any():
+        # Dense cores (e.g. Haussmannian Paris) can threshold to a single
+        # connected blob spanning a large fraction of the frame even though
+        # coverage itself looks reasonable (~35%) -- the triangle threshold
+        # picks a residual cut low enough that adjacent buildings' footprints
+        # touch through the raster, well before any morphological close runs.
+        # Measured on Paris: one component covered 35.6% of frame BEFORE any
+        # close/open, producing 19 vectorized "polygons" (two giant degenerate
+        # triangles + speckle) instead of ~150+ real building footprints, even
+        # though the underlying mask agreed well with OSM (IoU 0.53 as a raw
+        # raster). A single blob this large is never a real building -- force
+        # the watershed split regardless of the caller's split_watershed flag,
+        # since leaving city blocks fused never helps registration or the
+        # footprint/vectorization report.
+        _n, _, _stats, _ = cv2.connectedComponentsWithStats(
+            mask.astype(np.uint8), connectivity=8)
+        if _n > 1:
+            _dominant_frac = float(_stats[1:, cv2.CC_STAT_AREA].max()) / mask.size
+            force_split = _dominant_frac > 0.15
+    if (split_watershed or force_split) and source != "osm":
         mask = split_touching_buildings(mask, cell_size_m=cell_size_m)
+        if force_split:
+            logger.info(
+                "building_mask: forced watershed split -- a single connected "
+                "component covered >15%% of the frame (dense-core under-"
+                "segmentation, e.g. Haussmannian block fusion).")
 
     return mask
 
@@ -466,8 +503,8 @@ def building_mask(
 def split_touching_buildings(
     mask: np.ndarray,
     cell_size_m: float | None = None,
-    min_separation_m: float = 25.0,
-    min_floor_px: int = 6,
+    min_separation_m: float = 12.0,
+    min_floor_px: int = 3,
 ) -> np.ndarray:
     """Carve 1-px gaps between merged building footprints (watershed split).
 
@@ -487,6 +524,19 @@ def split_touching_buildings(
     min_separation_m : minimum spacing between building-centre markers (metres
         when ``cell_size_m`` is known, else taken as pixels).  Prevents one
         building from splitting into several.
+
+        Tuned against real Paris data (dense Haussmannian blocks — many
+        individual, party-wall-attached buildings per block, only a couple
+        metres apart with no height gap between them): the original 25m/6px
+        values were sized to separate whole BLOCKS from each other (across a
+        real street gap) and left individual buildings within a block still
+        fused — vectorizing as one block-scale polygon (median 2540px^2 at
+        2x-detect resolution) instead of OSM's individual-building scale
+        (median ~680px^2 at the same resolution). Tightening to 12m/3px
+        roughly doubled the polygon count (55->103, much closer to OSM's own
+        157) with no measurable IoU cost (0.286->0.284) — the true limit
+        below ~12m is the heightmap's own physical resolution, not this
+        parameter (going lower produced no further splits).
     """
     m = np.asarray(mask) > 0
     if not m.any():

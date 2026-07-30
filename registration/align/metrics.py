@@ -95,6 +95,7 @@ def score_alignment(
     target: np.ndarray,
     transform: np.ndarray,
     cell_size_m: float | None = None,
+    allow_forced_split: bool = True,
 ) -> dict:
     """
     Objective registration-quality metrics for a given source→target transform.
@@ -136,7 +137,8 @@ def score_alignment(
     """
     aligned = apply_transform(source, transform, output_shape=target.shape)
 
-    s_mask = building_mask(aligned, source="stl", cell_size_m=cell_size_m)
+    s_mask = building_mask(aligned, source="stl", cell_size_m=cell_size_m,
+                           allow_forced_split=allow_forced_split)
     t_mask = building_mask(target, source="osm")
 
     def _iou(a, b):
@@ -189,7 +191,7 @@ def score_alignment(
         overlap_dice = (2.0 * inter_c / (ns + nt)) if (ns + nt) > 0 else 0.0
 
     # Edge masks — the honest signal (sparse outlines, low random baseline).
-    s_edge = building_edges(aligned, source="stl")
+    s_edge = building_edges(aligned, source="stl", allow_forced_split=allow_forced_split)
     t_edge = building_edges(target, source="osm")
     edge_iou = _tolerant_iou(s_edge, t_edge, tol_px=2)
     edge_base = _baseline(s_edge, t_edge)

@@ -69,7 +69,12 @@ def refine_transform(
 
     # Build the signal images
     if signal in ("mask", "sdf"):
-        s_img = _mask_sdf(building_mask(source, source="stl"))
+        # allow_forced_split=False: this feeds the ECC registration refine —
+        # must match the mask structure the rest of the search was tuned
+        # against, not the report-quality segmentation (see building_mask()'s
+        # allow_forced_split docstring; a mismatch here re-broke Bilbao's
+        # already-fixed 180°-flip via the ECC accept/reject edge-IoU check).
+        s_img = _mask_sdf(building_mask(source, source="stl", allow_forced_split=False))
         t_img = _mask_sdf(building_mask(target, source="osm"))
     else:  # edge
         s_img = _preprocess_for_registration(source).astype(np.float32)
@@ -166,7 +171,9 @@ def discover_projection(
 
     def _split_iou(M):
         aligned = apply_transform(source, M, output_shape=target.shape)
-        s_edge = building_edges(aligned, source="stl")
+        # allow_forced_split=False: keep search-stable mask structure (see
+        # building_mask()'s allow_forced_split docstring).
+        s_edge = building_edges(aligned, source="stl", allow_forced_split=False)
         out = {}
         for name, colsel in (("train", ~val_cols), ("val", val_cols)):
             out[name] = _tolerant_iou(s_edge[:, colsel], t_edge[:, colsel], tol_px=2)
