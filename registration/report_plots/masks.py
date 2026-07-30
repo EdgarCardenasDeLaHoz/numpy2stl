@@ -374,14 +374,30 @@ def render_footprint_rgchannel_png(out_path: str | Path, report) -> Path:
     from ..align import building_mask, apply_transform
     from matplotlib.patches import Patch
 
-    # Warp the original STL mask (same threshold as registration and binarization)
-    stl_mask_orig = building_mask(report.stl_heightmap, source="stl",
-                                   cell_size_m=getattr(report, "cell_size_m", None)).astype(np.float64)
-    stl_mask_warped = apply_transform(
-        stl_mask_orig, report.registration.transform,
-        output_shape=report.osm_heightmap.shape, fill_value=0.0,
-    )
-    stl_mask = (stl_mask_warped > 0.5).astype(np.float32)
+    # Prefer report.stl_building_mask -- the mask _run_comparison actually scored
+    # against, already warped into OSM space with split_watershed=True applied
+    # AFTER the warp (compare.py's _warp_mask_compare). Re-deriving here by
+    # masking the RAW heightmap first and warping the binary result afterward
+    # (the old unconditional path below) re-fuses watershed-split buildings back
+    # together: downscaling a binary mask (e.g. Paris/Barcelona's ~0.667x locked
+    # scale) blurs/merges the 1px ridge lines between adjacent buildings well
+    # before the >0.5 threshold can preserve them, so dense cities rendered as
+    # one solid red blob here even though score_alignment() (which warps the
+    # CONTINUOUS heightmap first, then masks) never saw that corruption --
+    # measured on Paris: 48 fused components at max 12.4% of frame this way vs.
+    # 139 correctly-separated components via stl_building_mask, same IoU.
+    stl_building_mask = getattr(report, "stl_building_mask", None)
+    if stl_building_mask is not None and stl_building_mask.shape == report.osm_heightmap.shape:
+        stl_mask = stl_building_mask.astype(np.float32)
+    else:
+        # Fallback: warp the heightmap FIRST (continuous data warps cleanly),
+        # then mask -- matches score_alignment()'s safe ordering.
+        aligned_hm = apply_transform(
+            report.stl_heightmap, report.registration.transform,
+            output_shape=report.osm_heightmap.shape,
+        )
+        stl_mask = building_mask(aligned_hm, source="stl",
+                                  cell_size_m=getattr(report, "cell_size_m", None)).astype(np.float32)
     osm_mask = building_mask(report.osm_heightmap, source="osm").astype(np.float32)
 
     # Crop to STL extent + small margin
