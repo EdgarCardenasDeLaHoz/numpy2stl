@@ -37,7 +37,7 @@ def render_transform_summary_png(out_path: str | Path, reg) -> Path:
     ax.axis("off")
 
     lines = [
-        f"Confidence (ECC cc): {reg.confidence:.4f}",
+        f"Confidence (ECC cc): {reg.confidence:.4f}  (raw FFT xcorr peak -- search diagnostic, not match quality)",
         f"Spatial scale:       {reg.scale:.4f}x",
         f"Rotation:            {reg.angle_deg:.2f} deg",
         f"Translation (tx):    {reg.transform[0, 2]:.2f} px",

@@ -122,6 +122,7 @@ def render_registration_index(report, asset_paths: dict) -> str:
     # --- Alignment quality metrics ---
     try:
         from .align import score_alignment
+        from .compare import _composite_match_score
         import numpy as _np
         sc = score_alignment(report.stl_aligned, report.osm_heightmap,
                              _np.array([[1,0,0],[0,1,0]], dtype=float),
@@ -134,34 +135,35 @@ def render_registration_index(report, asset_paths: dict) -> str:
         ov_iou     = sc["overlap_iou"]
         ov_prec    = sc["overlap_precision"]
         ov_dice    = sc["overlap_dice"]
+        height_corr = sc["height_corr"]
+        match_score = _composite_match_score(ov_iou, ov_prec, edge_lift, height_corr)
     except Exception:
         edge_iou = edge_lift = edge_base = foot_iou = foot_lift = float("nan")
-        ov_iou = ov_prec = ov_dice = float("nan")
+        ov_iou = ov_prec = ov_dice = height_corr = float("nan")
+        match_score = 0.0
 
-    # Quality badge — driven by the FILLED footprint-overlap IoU (cropped to the STL
-    # extent: the number the footprint_rgchannel.png overlay shows), combined with
-    # overlap precision (fraction of the STL model's footprint OSM confirms).  The
-    # old gate used edge-IoU lift over random, which is so sparse that a visually
-    # broken, mostly-red overlay (e.g. Salzburg, wrong-quadrant −90° flip) still
-    # cleared it.  Two factors are required because filled-IoU alone cannot separate
-    # a broken city from a good one when both read a similar absolute IoU: precision
-    # collapses on the broken fit (large STL-only regions OSM never confirms) while a
-    # genuine fit keeps it high.  Calibrated on the 8-city set (Salzburg iou 0.35 /
-    # prec 0.45 fails; the next-worst genuine city Bilbao iou 0.365 / prec 0.55 passes).
-    if ov_iou >= 0.36 and ov_prec >= 0.50:
+    # Quality badge — driven by the composite match_score (0.35*overlap_iou/0.50 +
+    # 0.30*overlap_precision + 0.15*edge_lift/6.0 + 0.20*height_corr, clipped to
+    # [0,1] — see compare.py:_composite_match_score()).  Replaces the old
+    # ov_iou/ov_prec two-factor threshold gate: the composite folds in edge_lift and
+    # height_corr as corroborating signal on top of the same two gate factors, so a
+    # borderline footprint match with strong edge/height corroboration (or vice
+    # versa) reads more informatively than a hard IoU/precision cutoff alone.
+    # Thresholds calibrated on the 8-city set (Step 2): good >=0.65, warn >=0.40.
+    if match_score >= 0.65:
         badge_cls, badge_txt = "badge-good", "&#x2705; Genuine match"
-        quality_summary = ("The filled building footprints overlap strongly and most of the model's "
+        quality_summary = (f"Match score {match_score*100:.0f}% — the filled building footprints overlap strongly and most of the model's "
                            "footprint is confirmed by OSM — the registration found a real geometric correspondence.")
-    elif ov_iou >= 0.28 and ov_prec >= 0.40:
+    elif match_score >= 0.40:
         badge_cls, badge_txt = "badge-warn", "&#x26A0;&#xFE0F; Weak match"
-        quality_summary = ("Partial footprint overlap, but below the confident-match threshold "
-                           "(filled IoU &ge; 0.36 and precision &ge; 0.50). A large share of the model's "
+        quality_summary = (f"Match score {match_score*100:.0f}% — partial footprint overlap, but below the confident-match threshold "
+                           "(match score &ge; 65%). A large share of the model's "
                            "footprint is unconfirmed by OSM &mdash; inspect the footprint overlay below for misalignment.")
     else:
         badge_cls, badge_txt = "badge-bad", "&#x274C; No match"
-        quality_summary = "Filled footprint overlap is near chance. The registration did not find a reliable alignment."
+        quality_summary = f"Match score {match_score*100:.0f}% — filled footprint overlap is near chance. The registration did not find a reliable alignment."
 
-    iou_cls  = "good" if (ov_iou >= 0.36 and ov_prec >= 0.50) else "warn" if (ov_iou >= 0.28 and ov_prec >= 0.40) else "bad"
+    iou_cls  = "good" if match_score >= 0.65 else "warn" if match_score >= 0.40 else "bad"
 
     # Landmark check block
     lm = getattr(report, "landmark_check", None)
@@ -305,12 +307,17 @@ def render_registration_index(report, asset_paths: dict) -> str:
     <tr><th>Rotation</th><td>{reg.angle_deg:.2f}&deg;</td></tr>
     <tr><th>Translation (tx&nbsp;/&nbsp;ty)</th>
         <td>{reg.transform[0,2]:.1f}&nbsp;/&nbsp;{reg.transform[1,2]:.1f}&nbsp;px</td></tr>
+    <tr><th>Match score</th>
+        <td class="{iou_cls}"><b>{match_score*100:.0f}%</b>
+            &nbsp;<span class="muted">composite of overlap IoU (35%), overlap precision (30%),
+            edge lift (15%), height correlation (20%): a relative quality ranking, not a
+            calibrated accuracy percentage &mdash; treat 65%+ as a genuine registration,
+            40&ndash;65% as worth reviewing, below 40% as likely broken.</span></td></tr>
     <tr><th>Filled footprint-overlap IoU</th>
-        <td class="{iou_cls}"><b>{ov_iou:.3f}</b>
+        <td><b>{ov_iou:.3f}</b>
             &nbsp;<span class="muted">precision {ov_prec:.2f} (share of STL footprint OSM confirms),
             Dice {ov_dice:.3f}
-            &mdash; the gate metric (cropped to the STL extent; matches the footprint overlay).
-            {'&#x2705; genuine' if (ov_iou >= 0.36 and ov_prec >= 0.50) else '&#x26A0;&#xFE0F; weak' if (ov_iou >= 0.28 and ov_prec >= 0.40) else '&#x274C; no match'}
+            &mdash; two of the four inputs to the match score above (cropped to the STL extent; matches the footprint overlay).
             </span></td></tr>
     <tr><th>Edge IoU</th>
         <td><span class="muted"><b>{edge_iou:.3f}</b> vs random baseline {edge_base:.3f}

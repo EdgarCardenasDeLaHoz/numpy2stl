@@ -5,7 +5,7 @@ Mirrors skyline/region_types.py: immutable, cacheable, no heavy imports.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -48,6 +48,16 @@ class ComparisonResult:
     height_offset_used: float   # the Z intercept added after scaling (metres): stl_m = stl*scale + offset
     height_ratio_mean: float    # mean(STL / OSM) — 1.0 = perfect scale
     height_ratio_std: float     # std(STL / OSM) — variability in per-pixel scaling
+
+    # --- Composite match-quality score (added; see compare.py:_composite_match_score()) ---
+    # Existing fields above have no defaults (positional dataclass), so these are
+    # appended at the END with defaults to stay safe for any positional construction.
+    overlap_iou: float = 0.0          # score_alignment's overlap_iou: filled-mask IoU cropped to STL extent (the gate metric)
+    overlap_precision: float = 0.0    # score_alignment's overlap_precision: fraction of STL footprint OSM confirms
+    edge_lift: float = 0.0            # score_alignment's edge_lift: edge_iou / edge_baseline
+    height_corr: float = 0.0          # score_alignment's height_corr: Pearson r of heights over the overlap
+    match_score: float = 0.0          # composite [0,1] match-quality score — see compare.py:_composite_match_score()
+    match_score_components: dict = field(default_factory=dict)  # {'overlap_iou':..,'overlap_precision':..,'edge_lift':..,'height_corr':..}
 
 
 @dataclass(frozen=True)

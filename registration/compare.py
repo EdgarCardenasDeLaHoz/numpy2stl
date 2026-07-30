@@ -18,6 +18,10 @@ def compare(
     height_offset: float | None = None,
     height_agg: str = "p95",
     robust_fit: bool = False,
+    overlap_iou: float | None = None,
+    overlap_precision: float | None = None,
+    edge_lift: float | None = None,
+    height_corr: float | None = None,
 ) -> ComparisonResult:
     """
     Compute pixel-wise height difference between an aligned STL heightmap
@@ -129,6 +133,13 @@ def compare(
     n_overlap = int(overlap.sum())
     if n_overlap == 0:
         logger.warning("No overlapping pixels found; all stats will be NaN/0.")
+        _oi  = overlap_iou if overlap_iou is not None else float("nan")
+        _op  = overlap_precision if overlap_precision is not None else float("nan")
+        _el  = edge_lift if edge_lift is not None else float("nan")
+        _hc  = height_corr if height_corr is not None else float("nan")
+        _match = _composite_match_score(_oi, _op, _el, _hc)
+        _match_components = {"overlap_iou": _oi, "overlap_precision": _op,
+                              "edge_lift": _el, "height_corr": _hc}
         return ComparisonResult(
             difference=difference,
             building_diff_map=building_diff_map,
@@ -149,6 +160,12 @@ def compare(
             height_offset_used=float(height_offset),
             height_ratio_mean=float("nan"),
             height_ratio_std=float("nan"),
+            overlap_iou=_oi,
+            overlap_precision=_op,
+            edge_lift=_el,
+            height_corr=_hc,
+            match_score=_match,
+            match_score_components=_match_components,
         )
 
     # --- Height statistics: PER-BUILDING (median/max), fills excluded ---
@@ -228,6 +245,14 @@ def compare(
         int(agg_osm.size), n_overlap,
     )
 
+    _oi  = overlap_iou if overlap_iou is not None else float("nan")
+    _op  = overlap_precision if overlap_precision is not None else float("nan")
+    _el  = edge_lift if edge_lift is not None else float("nan")
+    _hc  = height_corr if height_corr is not None else float("nan")
+    _match = _composite_match_score(_oi, _op, _el, _hc)
+    _match_components = {"overlap_iou": _oi, "overlap_precision": _op,
+                          "edge_lift": _el, "height_corr": _hc}
+
     return ComparisonResult(
         difference=difference,
         building_diff_map=building_diff_map,
@@ -248,6 +273,12 @@ def compare(
         height_offset_used=float(height_offset),
         height_ratio_mean=height_ratio_mean,
         height_ratio_std=height_ratio_std,
+        overlap_iou=_oi,
+        overlap_precision=_op,
+        edge_lift=_el,
+        height_corr=_hc,
+        match_score=_match,
+        match_score_components=_match_components,
     )
 
 
@@ -284,6 +315,30 @@ def _trimmed_linfit(x, y, trim=True, k=3.0):
     else:
         inl = np.ones(n, dtype=bool)
     return float(s), float(b), inl
+
+
+def _composite_match_score(overlap_iou: float, overlap_precision: float,
+                            edge_lift: float, height_corr: float) -> float:
+    """
+    Composite [0,1] registration match-quality score, combining the four
+    score_alignment() components that together separate a genuine registration
+    from a broken one (same reasoning html_report.py's badge gate already used:
+    overlap_iou + overlap_precision as the two-factor gate; edge_lift and
+    height_corr as corroborating signal).
+
+    NOT a probability or calibrated accuracy percentage -- a weighted blend of
+    uncalibrated component metrics, each with its own noise floor. Treat as a
+    relative quality ranking / triage signal, not a precise accuracy number.
+    """
+    oi = 0.0 if overlap_iou != overlap_iou else overlap_iou   # NaN guard
+    op = 0.0 if overlap_precision != overlap_precision else overlap_precision
+    el = 0.0 if edge_lift != edge_lift else edge_lift
+    hc = 0.0 if height_corr != height_corr else height_corr
+    score = (0.35 * min(1.0, oi / 0.50)
+           + 0.30 * op
+           + 0.15 * min(1.0, el / 6.0)
+           + 0.20 * max(0.0, hc))
+    return float(max(0.0, min(1.0, score)))
 
 
 def _aggregate_buildings(stl_aligned, osm, stl_valid, osm_valid,

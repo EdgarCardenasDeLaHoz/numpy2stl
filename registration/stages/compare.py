@@ -7,7 +7,7 @@ import time
 
 import numpy as np
 
-from ..align import apply_transform
+from ..align import apply_transform, score_alignment
 from ..compare import compare
 from ..types import RegistrationResult
 from ._common import _decompose_for_report, _inpaint_stl_nan
@@ -71,7 +71,12 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
         resid, _ = _terrain_residual(s_al, cell_size_m=cell_size_m)
         s_cmp = resid.copy()
         s_cmp[~bmask] = np.nan
-        cmp = compare(s_cmp, osm_hm, height_scale)
+        _sc_metrics = score_alignment(stl_hm, osm_hm, T, cell_size_m=cell_size_m)
+        cmp = compare(s_cmp, osm_hm, height_scale,
+                      overlap_iou=_sc_metrics["overlap_iou"],
+                      overlap_precision=_sc_metrics["overlap_precision"],
+                      edge_lift=_sc_metrics["edge_lift"],
+                      height_corr=_sc_metrics["height_corr"])
         return s_al, bmask, resid, s_cmp, cmp
 
     stl_aligned, stl_building_mask, stl_residual, stl_for_compare, comp_result = \
