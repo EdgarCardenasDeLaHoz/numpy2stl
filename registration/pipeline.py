@@ -68,6 +68,18 @@ def register_city_stl(
     decimation_curve: bool = False,
     free_scale: bool = False,
     registration_method: str = "raster",   # "raster" | "polygon"
+    # "auto" | "always" | "never". Defaults to "never": the probe's lock gate
+    # (dice_sharpness/rot_sharpness margins reused from global_search.py's
+    # rotation-refinement decision) does NOT reliably separate correct from
+    # incorrect city centers -- measured 0/8 test cities "locked", including
+    # all 4 known-good ones (Miami/Prague/Salzburg/Valencia), so "auto" would
+    # currently trigger the full multi-candidate search (several minutes of
+    # real OSM fetches) for every single city, every time, with the search
+    # itself ALSO never resolving (same broken gate) -- pure added cost, zero
+    # benefit, until the gate is redesigned. Pass "always" to opt into running
+    # find_best_city_center() explicitly (e.g. for testing/calibrating a new
+    # gate) despite this.
+    center_search: str = "never",
 ) -> CityRegistrationReport:
     """
     Full pipeline: STL → heightmap → OSM raster → register → compare → (report).
@@ -92,6 +104,20 @@ def register_city_stl(
                        Defaults to the gitignored Code/_reports/{region}/
                        (mirrors the skyline runs/ convention).
                        Pass False to suppress all file output.
+    center_search    : "auto" (default) — after resolving the tight OSM bbox from
+                       `center`/geocoding, run a cheap coarse register_global()
+                       probe; if it does NOT show a sharp Dice/rotation lock
+                       (the single geocoded center is probably wrong for this
+                       STL — see applications.cities.get_city_center_point()'s
+                       docstring), search a ring of alternate centers via
+                       find_best_city_center() and use the winning candidate's
+                       bbox for the rest of the pipeline. "always" forces the
+                       search even when the probe would have passed (useful to
+                       validate the search itself). "never" is the exact old
+                       behaviour: no probe, no search, single geocode only.
+                       A failed/unresolved search falls back to the original
+                       bbox (never crashes) and is recorded on the report's
+                       `_center_search` field.
 
     Returns
     -------
@@ -160,6 +186,90 @@ def register_city_stl(
             # same resolution → the STL fills 1/osm_margin of the OSM frame.
             geometric_anchor = 1.0 / osm_margin
             known_scale = geometric_anchor
+
+    # 1c. Center-search safety net: a single "Downtown {city}" geocode (or an
+    # explicit `center`) has no verification against what the STL actually
+    # depicts — for a tight bbox (~osm_margin x footprint) even a modest
+    # geocoding miss is a complete location mismatch (measured: Barcelona,
+    # Paris, Lisbon, Bilbao). A cheap coarse register_global() probe against
+    # the resolved tight_bbox catches this: if the probe's Dice/rotation
+    # sweeps show no real peak (is_locked=False), the location is probably
+    # wrong, so search a ring of alternate centers via find_best_city_center()
+    # and use the winning candidate's bbox instead — 100% consistent with the
+    # decision `_is_locked_registration()` reuses from global_search.py, not a
+    # separately-tuned gate. "never" = exact old behaviour (no probe, no
+    # search); "auto" = only search when the probe fails; "always" = search
+    # even if the probe would pass (useful for validating the search itself).
+    _center_search_report: dict | None = None
+    if isinstance(city_name, str) and tight_bbox is not None and center_search != "never":
+        from .stages import _is_locked_registration
+        from .align import register_global as _register_global_probe
+        from .config import CENTER_SEARCH_DICE_MARGIN, CENTER_SEARCH_ROT_MARGIN
+
+        # Coarse probe resolution — matches find_best_city_center()'s own default
+        # probe_resolution (256): a cheap screening pass, not the final search.
+        _PROBE_RES = 256
+        _run_search = center_search == "always"
+        if not _run_search:
+            try:
+                _probe_osm = _timed(
+                    "Center-search probe: fetch OSM", get_osm_building_heightmap,
+                    tight_bbox, resolution=_PROBE_RES,
+                    default_height=default_height, levels_to_meters=levels_to_meters,
+                )
+                import cv2 as _cv2_probe
+                _stl_probe = np.nan_to_num(stl_hm.astype(np.float32), nan=0.0)
+                if _stl_probe.shape != (_PROBE_RES, _PROBE_RES):
+                    _stl_probe = _cv2_probe.resize(
+                        _stl_probe, (_PROBE_RES, _PROBE_RES),
+                        interpolation=_cv2_probe.INTER_LINEAR)
+                _probe_reg = _timed(
+                    "Center-search probe: register_global", _register_global_probe,
+                    _stl_probe, _probe_osm["heightmap"],
+                    scale_prior=geometric_anchor, scale_search=0.0,
+                )
+                _lock = _is_locked_registration(
+                    _probe_reg, dice_margin=CENTER_SEARCH_DICE_MARGIN,
+                    rot_margin=CENTER_SEARCH_ROT_MARGIN)
+                logger.info("Center-search probe: dice_sharpness=%.3f rot_sharpness=%.3f "
+                            "locked=%s", _lock["dice_sharpness"], _lock["rot_sharpness"],
+                            _lock["is_locked"])
+                _center_search_report = {"probe": _lock, "search": None}
+                _run_search = not _lock["is_locked"]
+            except Exception as _exc:
+                logger.warning("Center-search probe failed (%s); running full search "
+                               "to be safe.", _exc)
+                _center_search_report = {"probe": None, "search": None}
+                _run_search = True
+
+        if _run_search:
+            logger.info("Center-search: probe did not lock (or center_search='always') — "
+                        "searching alternate centers for %r.", city_name)
+            from ..applications.cities import find_best_city_center
+            _search = _timed(
+                "Center-search: find_best_city_center", find_best_city_center,
+                city_name, stl_z_max, stl_xy_extent, stl_hm,
+                tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit,
+                initial_center=center,
+            )
+            if _center_search_report is None:
+                _center_search_report = {"probe": None, "search": _search}
+            else:
+                _center_search_report["search"] = _search
+            if _search["resolved"]:
+                osm_fetch_target = _search["osm_fetch_target"]
+                geometric_anchor = 1.0 / osm_margin
+                known_scale = geometric_anchor
+                logger.info("Center-search RESOLVED for %r: new center %s "
+                            "(%d candidates tried).", city_name, _search["center"],
+                            _search["candidates_tried"])
+            else:
+                logger.warning("Center-search did NOT resolve for %r after %d candidates "
+                               "(best dice_sharpness=%.3f rot_sharpness=%.3f) — keeping "
+                               "the original single-geocode bbox; registration quality for "
+                               "this city may still be unreliable.", city_name,
+                               _search["candidates_tried"], _search["best_dice_sharpness"],
+                               _search["best_rot_sharpness"])
 
     # Scale is finalized AFTER the OSM fetch from estimate_scale() (area + Fourier),
     # which is reliable now that the STL is rendered isotropically (square pixels).
@@ -432,6 +542,7 @@ def register_city_stl(
         _simplify_stats=_simplify_stats_dict,
         _decimation_sweep=_decimation_sweep,
         _prism_stats=_prism_stats_dict,
+        _center_search=_center_search_report,
     )
 
     # 7. Write HTML report (default ON, pass out_dir=False to suppress)

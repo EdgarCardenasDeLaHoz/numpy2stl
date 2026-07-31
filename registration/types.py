@@ -114,3 +114,9 @@ class CityRegistrationReport:
     _simplify_stats: object = None          # SimplifyStats-as-dict (faces, ratio, hausdorff, budget)
     _decimation_sweep: object = None        # [{ratio, faces, hausdorff_units, hausdorff_m}, ...]
     _prism_stats: object = None             # PrismStats-as-dict (simplify_mode="prism")
+    _center_search: dict | None = None      # {"probe": _is_locked_registration() dict | None,
+                                             #  "search": find_best_city_center() dict | None}
+                                             # — None when center_search="never" or city_name
+                                             # wasn't a string (bbox tuple; no geocoding to probe).
+                                             # "probe" is None only when the probe itself raised
+                                             # (search then ran unconditionally as a fallback).

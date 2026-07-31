@@ -75,6 +75,19 @@ REGISTER_RES = 512
 # stripping roof clutter.  Larger = more aggressive flattening.
 DEFAULT_SIMPLIFY_TOL_M = 3.5
 
+# --- Center search (find_best_city_center) ----------------------------------
+# Minimum (peak - sweep median) margin to trust a scale-Dice / rotation-IoU peak
+# as a genuine, sharp signal rather than sweep noise.  Reuses global_search.py's
+# own internal gates verbatim (_DICE_PEAK_MARGIN, _ROT_PEAK_MARGIN in
+# register_global(), both 0.10) — a candidate center is only "locked" when its
+# coarse register_global() pass shows the same kind of sharp peak that
+# register_global() itself already requires before trusting a Dice/IoU peak
+# over its fallback.  Named separately here (not just re-imported) because they
+# gate a DIFFERENT decision (is this CENTER right?) than the ones inside
+# global_search.py (is this SCALE/ROTATION right, given the center already?).
+CENTER_SEARCH_DICE_MARGIN = 0.10
+CENTER_SEARCH_ROT_MARGIN = 0.10
+
 
 @dataclass(frozen=True)
 class RegistrationConfig:

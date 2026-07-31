@@ -1,8 +1,10 @@
 """Shared helpers for the registration pipeline stages.
 
 Pure functions used by more than one stage (and by the orchestrator): affine
-decomposition for the report, the landmark sanity check, and interior-NaN
-inpainting of the STL heightmap.
+decomposition for the report, the landmark sanity check, interior-NaN
+inpainting of the STL heightmap, and the coarse-registration "is this locked
+onto something real" gate shared by the orchestrator's probe check and
+applications.cities.find_best_city_center()'s per-candidate scoring.
 """
 
 from __future__ import annotations
@@ -12,6 +14,78 @@ import logging
 import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+def _sweep_sharpness(sweep: dict[float, float]) -> tuple[float, float, bool]:
+    """(peak_val, peak_val - median, is_at_boundary) for a {x: value} sweep.
+
+    Shared arithmetic behind global_search.py's own internal peak-vs-median
+    gates (_DICE_PEAK_MARGIN / _ROT_PEAK_MARGIN) — kept here so
+    _is_locked_registration() replicates that logic exactly rather than
+    re-deriving an approximation of it.
+    """
+    if not sweep:
+        return 0.0, 0.0, True
+    xs_sorted = sorted(sweep)
+    vals_sorted = sorted(sweep.values())
+    median = vals_sorted[len(vals_sorted) // 2]
+    peak_x = max(sweep, key=sweep.get)
+    peak_val = sweep[peak_x]
+    at_boundary = peak_x in (xs_sorted[0], xs_sorted[-1])
+    return float(peak_val), float(peak_val - median), bool(at_boundary)
+
+
+def _is_locked_registration(
+    reg_dict: dict,
+    dice_margin: float = 0.10,
+    rot_margin: float = 0.10,
+) -> dict:
+    """Score a register_global() result dict for "is this a real lock, or noise".
+
+    Replicates global_search.py's own internal peak-vs-median sharpness gates
+    (_DICE_PEAK_MARGIN / _ROT_PEAK_MARGIN, both 0.10) against the SAME sweep
+    data register_global() already returns, rather than approximating them:
+
+      - dice_sharpness : peak-vs-median margin of the scale sweep's Dice curve
+                         (scale_sweep entries are (scale, dice, iou, xcorr));
+                         matches the scale-pick logic at global_search.py's
+                         "scale by peak %s" branch, including its boundary check.
+      - rot_sharpness  : peak-vs-median margin of the rotation sweep's edge-IoU
+                         curve (rot_sweep entries are (angle_deg, dice, iou,
+                         xcorr) — dice is always 0.0 there, only iou is
+                         populated); matches the rotation-refine logic at
+                         global_search.py's "_is_sharp_peak" check. That check
+                         has no boundary term in the source, so none is applied
+                         here either — reusing exactly what exists, not adding
+                         a check global_search.py doesn't have.
+
+    `is_locked` is True when both margins clear their gate AND (for scale only)
+    the Dice peak isn't at the sweep's boundary — an edge peak means the true
+    optimum is likely outside the searched window, i.e. "the search didn't
+    converge", not "this pose is confidently right".
+
+    Returns dict: {dice_sharpness, rot_sharpness, dice_at_boundary, is_locked}.
+    """
+    scale_sweep = reg_dict.get("scale_sweep") or []
+    rot_sweep = reg_dict.get("rot_sweep") or []
+
+    dice_by_scale = {s: d for (s, d, i, x) in scale_sweep}
+    iou_by_rot = {r: i for (r, d, i, x) in rot_sweep}
+
+    _, dice_sharpness, dice_at_boundary = _sweep_sharpness(dice_by_scale)
+    _, rot_sharpness, _rot_at_boundary = _sweep_sharpness(iou_by_rot)
+
+    is_locked = (
+        dice_sharpness >= dice_margin
+        and rot_sharpness >= rot_margin
+        and not dice_at_boundary
+    )
+    return {
+        "dice_sharpness": float(dice_sharpness),
+        "rot_sharpness": float(rot_sharpness),
+        "dice_at_boundary": bool(dice_at_boundary),
+        "is_locked": bool(is_locked),
+    }
 
 
 def _decompose_for_report(M: np.ndarray) -> tuple[float, float]:
