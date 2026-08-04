@@ -152,6 +152,9 @@ def hill_relief_mask(
     hill_sigma_m: float = 120.0,
     hill_thresh_m: float = 3.0,
     base_percentile: float = 10.0,
+    adaptive: bool = False,
+    relief_percentile: float = 60.0,
+    min_hill_thresh_m: float = 2.0,
 ) -> np.ndarray:
     """
     Flag cells that sit on broad, hill-scale elevated terrain — independent of
@@ -171,11 +174,34 @@ def hill_relief_mask(
     a real hillside (OSM often tags forest; this catches the untagged rock/
     grass/path area between), not a replacement for either alone.
 
-    Validated on Salzburg (Kapuzinerberg/Mönchsberg — two steep, compact
-    hills through the historic core): sigma=120m/thresh=3m matches the two
-    hills' visible extent closely and doesn't touch the flat valley-floor
-    building grid; OSM vegetation/water/bridge tags alone only covered ~32%
-    of the STL's actual high-elevation pixels there.
+    Default is a FIXED threshold (hill_thresh_m=3.0m), validated on Salzburg
+    (Kapuzinerberg/Mönchsberg — two steep, compact hills through the historic
+    core): matches the two hills' visible extent closely and doesn't touch
+    the flat valley-floor building grid; OSM vegetation/water/bridge tags
+    alone only covered ~32% of the STL's actual high-elevation pixels there.
+    Confirmed safe across all 8 Micropolitan test cities this session,
+    including flat ones (Miami, Bilbao) where it correctly stays a no-op.
+
+    `adaptive=True` tries a PERCENTILE-RELATIVE threshold instead (flag cells
+    where blurred elevation exceeds base + relief_percentile% of the way to
+    the frame's own p95 blurred elevation, floored at min_hill_thresh_m) —
+    this generalizes better to cities with broad, gentle relief the fixed
+    3.0m under-excludes (measured on Lisbon: fixed 3.0m leaves 53.7% of frame
+    as "building" post-exclusion, adaptive leaves a much more plausible
+    37.0%). BUT this is NOT safe as a blanket default: measured directly on
+    3 real cities, the adaptive threshold computes to Miami=1.27m (flat, must
+    stay excluded/no-op), Bilbao=1.65m (ALSO flat/uniform despite a mid-value
+    number, must also stay excluded), Lisbon=2.31m (real broad hills, must
+    be included) — Bilbao's value sits BETWEEN the two flat cities' and
+    Lisbon's real-hill value, so no single min_hill_thresh_m floor can
+    correctly separate all three; a floor that lets Lisbon's signal through
+    (2.0m) also incorrectly flags 26.5% of flat, non-hilly Bilbao and
+    corrupted its rotation (-0.22° -> 13.16°) the same way an unfloored
+    version corrupted Miami's (0.02° -> -104.98°). Left here as an opt-in
+    experiment for future recalibration (e.g. a spatial-contiguity/shape
+    check distinguishing a real hill from scattered building-height noise,
+    rather than a magnitude-only threshold) — not wired into the pipeline's
+    default call.
 
     Returns
     -------
@@ -202,7 +228,13 @@ def hill_relief_mask(
         blurred = arr  # no-op fallback — degrades to "never hill-like", not a crash
 
     base = float(np.nanpercentile(arr[valid], base_percentile))
-    return valid & ((blurred - base) > hill_thresh_m)
+    if not adaptive:
+        return valid & ((blurred - base) > hill_thresh_m)
+    top = float(np.nanpercentile(blurred[valid], 95))
+    span = max(top - base, 1e-6)
+    adaptive_thresh = (relief_percentile / 100.0) * span
+    thresh_above_base = max(adaptive_thresh, min_hill_thresh_m)
+    return valid & ((blurred - base) > thresh_above_base)
 
 
 def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle") -> tuple[float, str]:
