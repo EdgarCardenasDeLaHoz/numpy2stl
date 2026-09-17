@@ -7,3 +7,6 @@ registration/runs/stl_cache
 registration/runs/osm_cache
 registration/runs/
 registration/runs/region_reports/*/assets
+
+# Runtime cache written by tests and pipeline runs
+/cache/

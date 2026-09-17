@@ -25,7 +25,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 import numpy as np
 
@@ -49,7 +48,6 @@ def main(argv=None):
     p.add_argument("--z-axis", type=int, default=2)
     args = p.parse_args(argv)
 
-    import cv2
     from numpy2stl.registration import register_city_stl
     from numpy2stl.registration.align import register, apply_transform, _decompose_matrix
 

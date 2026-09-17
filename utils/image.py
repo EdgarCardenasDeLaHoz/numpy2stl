@@ -73,6 +73,6 @@ def rescale(im, max_size=600, height=20, base=10, clip=None, smooth=None):
         im = im.clip(lo, hi)
 
     im = im - im.min()
-    im = im / im.ptp() * height
+    im = im / np.ptp(im) * height
     im = im + base
     return im

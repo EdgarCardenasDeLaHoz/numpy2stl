@@ -5,8 +5,6 @@ This module contains functions for processing geographic elevation data
 into 3D terrain models, extracted and refactored from the Oceans.ipynb notebook.
 """
 
-import os
-import sys
 from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
@@ -18,34 +16,25 @@ from ..core.generate import array_to_mesh
 from ..core.solid import triangles_to_facets
 from ..io.writers import writeSTL
 
-# Add the strm2stl directory to the path for imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-strm2stl_dir = os.path.abspath(os.path.join(current_dir, "..", "..", "..", ".."))
-if strm2stl_dir not in sys.path:
-    sys.path.insert(0, strm2stl_dir)
+def _import_geo2stl(submodule: str):
+    """Lazily import ``geo2stl.<submodule>`` from the sibling strm2stl project.
 
-try:
-    from geo2stl import geo2stl as g2s
-except ImportError as e:
+    geo2stl lives in strm2stl, not in numpy2stl, so it is only importable when
+    strm2stl (or its parent directory) is on ``sys.path``.
+    """
     import importlib
 
-    try:
-        g2s = importlib.import_module("strm2stl.geo2stl.geo2stl")
-    except Exception:
+    errors = []
+    for name in (f"geo2stl.{submodule}", f"strm2stl.geo2stl.{submodule}"):
         try:
-            from strm2stl.geo2stl import geo2stl as g2s
-        except Exception as e2:
-            print(f"Warning: Could not import geo2stl.geo2stl: {e}; fallback failed: {e2}")
-            g2s = None
+            return importlib.import_module(name)
+        except ImportError as exc:
+            errors.append(f"{name}: {exc}")
+    raise ImportError(
+        f"numpy2stl.applications.oceans needs geo2stl.{submodule} from the strm2stl "
+        "project; put strm2stl (or its parent directory) on sys.path. Tried: " + "; ".join(errors)
+    )
 
-try:
-    from geo2stl.sat2stl import get_aquatic_regions
-except ImportError as e:
-    try:
-        from strm2stl.geo2stl.sat2stl import get_aquatic_regions
-    except Exception as e2:
-        print(f"Warning: Could not import sat2stl (requires ee): {e}; fallback failed: {e2}")
-        get_aquatic_regions = None
 
 try:
     from ..utils.visualization import render_models_napari as view3D_napari
@@ -89,6 +78,7 @@ def make_dem_image(
     """
     N, S, E, W = target_bbox
 
+    g2s = _import_geo2stl("geo2stl")
     result = g2s.stitch_tiles_no_rasterio(target_bbox)
     im = result.copy()
 
@@ -106,8 +96,9 @@ def make_dem_image(
 
     im[im < 0] = im[im < 0] * depth_scale
 
-    if subtract_water and get_aquatic_regions is not None:
+    if subtract_water:
         try:
+            get_aquatic_regions = _import_geo2stl("sat2stl").get_aquatic_regions
             target_dim = min(max(im.shape[0], im.shape[1]), 500)
             img = get_aquatic_regions(N, S, E, W, dataset="jrc", scale=None, target_dim=target_dim)
             if img is not None:

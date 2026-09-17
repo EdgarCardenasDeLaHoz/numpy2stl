@@ -5,8 +5,6 @@ Part of the align/ subpackage (split from the former align.py).
 from __future__ import annotations
 
 import logging
-import time
-from math import atan2, degrees, sqrt
 
 import numpy as np
 

@@ -8,13 +8,8 @@ from scipy.sparse.csgraph import connected_components
 
 from ..io.writers import writeSTL
 from .polygon import (
-    get_area,
     get_ordered_perimeter,
-    get_perimeter_angles,
-    get_perimeter_normal,
-    perimeters_to_edges,
     rotate_3D,
-    set_orientation,
     simplify_perimeters,
     triangulate_polygon,
 )

@@ -51,7 +51,6 @@ class TestResolveBuildingHeight:
 
     def test_nan_height_falls_through(self):
         from numpy2stl.applications.cities import _resolve_building_height
-        import math
         row = {"height": float("nan"), "building:levels": "3"}
         # NaN height → falls through to building:levels
         assert _resolve_building_height(row, 10.0, 3.5) == pytest.approx(10.5)

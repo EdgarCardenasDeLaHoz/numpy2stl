@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import NamedTuple
 
 import numpy as np
 
@@ -81,5 +80,5 @@ def _rasterize_mesh(mesh, z_axis: int = 2, resolution: int = 512):
     x, y, z = pts[:, h_axes[0]], pts[:, h_axes[1]], pts[:, z_axis]
     hm, _, _, _ = binned_statistic_2d(x, y, z, statistic="max",
                                       bins=[resolution, resolution])
-    cell = (x.ptp() / resolution, y.ptp() / resolution)
+    cell = (np.ptp(x) / resolution, np.ptp(y) / resolution)
     return hm.T.astype(np.float64), cell

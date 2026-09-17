@@ -32,7 +32,8 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
         return out
     try:
         from ...applications.cities import derive_scale_m_per_unit
-        import tempfile, os as _os
+        import tempfile
+        import os as _os
         m_per_unit = derive_scale_m_per_unit(
             city_name, stl_z_max, tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit)
         if not m_per_unit or m_per_unit <= 0:

@@ -15,6 +15,12 @@ try:
 except Exception:
     HAS_CV2 = False
 
+# decimate_trimesh (the only simplification backend) needs pymeshlab.
+import importlib.util
+
+HAS_PYMESHLAB = importlib.util.find_spec("pymeshlab") is not None
+needs_pymeshlab = pytest.mark.skipif(not HAS_PYMESHLAB, reason="pymeshlab required")
+
 
 def _footprint(mesh, z_axis=2, n=64, ref_bounds=None):
     """Filled XY footprint of a mesh on an n×n grid over a common bounds box.
@@ -56,6 +62,7 @@ def _building_with_clutter():
 # ---------------------------------------------------------------------------
 
 @pytest.mark.skipif(not HAS_TRIMESH, reason="trimesh required")
+@needs_pymeshlab
 class TestDecimateToTolerance:
 
     def test_reduces_faces_within_budget_preserving_footprint(self):
@@ -229,6 +236,7 @@ class TestPrismDecompose:
 
 
 @pytest.mark.skipif(not HAS_TRIMESH, reason="trimesh required")
+@needs_pymeshlab
 class TestSimplifyBuildingMesh:
 
     def test_simplify_and_save_roundtrip(self, tmp_path):

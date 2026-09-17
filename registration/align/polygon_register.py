@@ -58,11 +58,6 @@ def _descriptors(polys):
             np.asarray(orients), np.asarray(eccs))
 
 
-def _similarity_matrix(s, theta, tx, ty):
-    c, sn = s * np.cos(theta), s * np.sin(theta)
-    return np.array([[c, -sn, tx], [sn, c, ty]], dtype=np.float64)
-
-
 def register_polygons(
     stl_polys,
     osm_polys,

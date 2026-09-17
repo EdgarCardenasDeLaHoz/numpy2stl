@@ -6,10 +6,9 @@ import numpy as np
 import shapely
 import triangle as tr
 from shapely import Polygon, constrained_delaunay_triangles, orient_polygons
-from shapely.geometry import Polygon
 
 from ..core.polygon import get_ordered_perimeter
-from ..core.solid import get_open_edges, get_surfaces, vertices_to_index
+from ..core.solid import get_open_edges, get_surfaces
 
 
 def simplify_mesh_surfaces(vertices, faces, min_faces=10):

@@ -105,7 +105,7 @@ def cut_puzzle_pieces_manifold(model, puzzle):
                 verts = res_mesh.vert_properties.reshape(-1, 3)
                 pieces_out[key] = (verts, res_mesh.tri_verts)
                 logger.info(f"Piece {key}: Success (via .intersect)")
-            except:
+            except Exception:
                 logger.error(f"Piece {key}: Failed - {e}")
 
     return pieces_out

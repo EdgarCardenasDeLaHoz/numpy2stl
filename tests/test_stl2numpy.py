@@ -2,7 +2,7 @@
 import numpy as np
 import pytest
 
-from numpy2stl import Solid, array_to_mesh, triangles_to_facets, writeSTL
+from numpy2stl import array_to_mesh, triangles_to_facets, writeSTL
 
 
 # ---------------------------------------------------------------------------

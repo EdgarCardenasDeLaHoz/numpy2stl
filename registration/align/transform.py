@@ -5,7 +5,6 @@ Part of the align/ subpackage (split from the former align.py).
 from __future__ import annotations
 
 import logging
-import time
 from math import atan2, degrees, sqrt
 
 import numpy as np
@@ -82,7 +81,6 @@ def _preprocess_for_registration(
         else:
             # pure-numpy Sobel fallback
             k = np.array([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]], dtype=np.float64)
-            from scipy.signal import convolve2d
             gx = np.pad(arr, 1, mode='edge')
             gx = sum(k[i, j] * np.roll(np.roll(arr, -i + 1, 0), -j + 1, 1)
                      for i in range(3) for j in range(3))

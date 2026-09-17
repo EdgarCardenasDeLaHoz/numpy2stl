@@ -6,8 +6,6 @@ from __future__ import annotations
 
 import logging
 import re
-import time
-from math import atan2, degrees, sqrt
 
 import numpy as np
 

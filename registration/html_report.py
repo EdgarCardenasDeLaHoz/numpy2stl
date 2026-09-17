@@ -508,7 +508,7 @@ def _decimation_section(report, asset_paths: dict) -> str:
     haus_m = st.get("hausdorff_m", float("nan"))
     budget = st.get("deviation_tol_m_metres", float("nan"))
     mpu = st.get("m_per_unit", 1.0)
-    curve = (f'''<h3 style="margin-top:20px">Decimation trade-off curve</h3>
+    curve = ('''<h3 style="margin-top:20px">Decimation trade-off curve</h3>
   <p>Surface deviation (Hausdorff, metres) achievable at each face-reduction level,
      with the chosen deviation budget and operating point marked &mdash; use it to
      judge how aggressive the budget can be before the building shape drifts.</p>

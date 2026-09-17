@@ -41,7 +41,7 @@ def profile_vertices_to_index():
     from numpy2stl import vertices_to_index
 
     print(f"\n{'='*60}")
-    print(f"Profiling vertices_to_index")
+    print("Profiling vertices_to_index")
     print(f"{'='*60}\n")
 
     # Generate test data

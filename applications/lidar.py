@@ -54,7 +54,6 @@ def _ndsm_cache_path(N, S, E, W, resolution) -> Path:
 def _find_ept_url(N, S, E, W):
     """Best-effort lookup of a 3DEP EPT resource covering the bbox centre."""
     try:
-        import json
         import requests
         from shapely.geometry import shape, Point
         gj = requests.get(_USGS_EPT_RESOURCES, timeout=30).json()

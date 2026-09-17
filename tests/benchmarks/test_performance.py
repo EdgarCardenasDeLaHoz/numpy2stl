@@ -1,7 +1,9 @@
-﻿"""Benchmark tests for numpy2stl performance."""
-import numpy as np
+"""Benchmark tests for numpy2stl performance."""
 import pytest
-from numpy2stl import array_to_mesh, vertices_to_index, triangles_to_facets, Solid
+
+pytest.importorskip("pytest_benchmark", reason="pytest-benchmark not installed")
+
+from numpy2stl import array_to_mesh
 
 
 class TestArrayToMeshPerformance:

@@ -31,10 +31,8 @@ def _default_out_dir(region_name: str) -> Path:
     slug = re.sub(r"[^\w\-]+", "_", region_name).strip("_").lower()
     return RUNS_DIR / slug
 
-from .align import apply_transform, register
-from .compare import compare
 from .html_report import write_registration_report
-from .types import CityRegistrationReport, ComparisonResult, RegistrationResult
+from .types import CityRegistrationReport
 
 # Stage helpers extracted to the stages/ subpackage (B1 split).
 from .stages import _simplify_stage, _run_registration, _run_comparison

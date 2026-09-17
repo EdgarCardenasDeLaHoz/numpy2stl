@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from itertools import product
 
 import numpy as np
 
@@ -140,29 +139,6 @@ def array_to_mesh(
         return verts, faces_idx
 
 
-def array2faces__(A, mask_val=0):
-
-    m, n = A.shape
-    xv, yv = np.meshgrid(range(n), range(m))
-    vertices = np.stack([xv.ravel(), yv.ravel(), A.ravel()]).T
-
-    idxs = np.array(range(m * n)).reshape(m, n)
-
-    faces = []
-
-    masked = A > mask_val
-    for i, k in product(range(m - 1), range(n - 1)):
-
-        if (masked[i, k]) and (masked[i, k + 1]) and (masked[i + 1, k]) and (masked[i + 1, k + 1]):
-
-            faces.append([idxs[i, k], idxs[i, k + 1], idxs[i + 1, k + 1]])
-            faces.append([idxs[i, k], idxs[i + 1, k + 1], idxs[i + 1, k]])
-
-    faces = np.array(faces)
-
-    return vertices, faces
-
-
 def array2faces(A, mask_val=0):
     m, n = A.shape
     xv, yv = np.meshgrid(range(n), range(m))
@@ -196,15 +172,15 @@ def limit_facet_size(facets, max_width=1000.0, max_depth=1000.0, max_height=1000
     max_width, max_depth, max_height (floats) - maximum size of the stl object (in mm).
                     Match this to the dimensions of a 3D printer platform.
     """
-    xsize = facets[:, 3::3].ptp()
+    xsize = np.ptp(facets[:, 3::3])
     if xsize > max_width:
         facets = facets * float(max_width) / xsize
 
-    ysize = facets[:, 4::3].ptp()
+    ysize = np.ptp(facets[:, 4::3])
     if ysize > max_depth:
         facets = facets * float(max_depth) / ysize
 
-    zsize = facets[:, 5::3].ptp()
+    zsize = np.ptp(facets[:, 5::3])
     if zsize > max_height:
         facets = facets * float(max_height) / zsize
 

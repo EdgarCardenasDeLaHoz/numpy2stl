@@ -22,7 +22,6 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
     runs `register_polygons` with scale pinned to the geometric anchor.  Returns
     None (→ caller falls back to raster) when the match confidence is low.
     """
-    import cv2 as _cv2
     from ..align import (register_polygons, vectorize_buildings, building_mask)
     # STL segmentation routes through the mask-producer seam (identical to
     # building_mask when no producer is installed); the OSM call below stays

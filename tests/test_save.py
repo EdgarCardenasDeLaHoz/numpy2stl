@@ -1,6 +1,5 @@
 # Tests for save.py - Export functions
 import numpy as np
-import pytest
 from numpy2stl import writeSTL, write3MF, writeOBJ, triangles_to_facets
 
 

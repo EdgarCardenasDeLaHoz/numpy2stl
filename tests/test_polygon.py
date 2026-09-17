@@ -1,6 +1,5 @@
 # Tests for polygon.py - Polygon utilities
 import numpy as np
-import pytest
 from numpy2stl import get_ordered_perimeter, triangulate_polygon, rotate_3D
 
 

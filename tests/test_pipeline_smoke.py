@@ -12,7 +12,6 @@ run. It was added alongside the B1 split (pipeline.py → stages/).
 from unittest.mock import patch
 
 import numpy as np
-import pytest
 
 from numpy2stl.registration import register_city_stl
 from numpy2stl.registration.types import CityRegistrationReport

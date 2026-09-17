@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import time
-from math import atan2, degrees, sqrt
 
 import numpy as np
 
@@ -33,7 +32,7 @@ _ROT_IOU_MARGIN = 0.02   # min edge-IoU gain to override the histogram rotation
 from .lines import gradient_angle_histogram, rotation_from_angle_histograms
 from .metrics import _dice, _tolerant_iou
 from .mask_source import produce_edges
-from .segmentation import building_edges, terrain_residual, building_mask
+from .segmentation import building_edges
 
 def register_global(
     source: np.ndarray,
