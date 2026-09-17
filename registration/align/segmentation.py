@@ -5,6 +5,7 @@ Part of the align/ subpackage (split from the former align.py).
 from __future__ import annotations
 
 import logging
+import re
 import time
 from math import atan2, degrees, sqrt
 
@@ -237,6 +238,11 @@ def hill_relief_mask(
     return valid & ((blurred - base) > thresh_above_base)
 
 
+# The clip percentile rides in the method name, so a caller that needs a stronger clip than the
+# default does not need a branch of its own here.
+_MULTIOTSU_CLIP = re.compile(r"multiotsu_p(\d+(?:\.\d+)?)")
+
+
 def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle") -> tuple[float, str]:
     """
     Pick a ground/building threshold on the terrain-residual distribution
@@ -246,6 +252,23 @@ def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle"
     method:
       'triangle'  — skimage threshold_triangle (built for one peak + a tail).
       'multiotsu' — 3-class multi-Otsu; take the lower (ground/low) boundary.
+      'multiotsu_pNN' — the same, after clipping the residual at its NNth
+                      percentile.  Multi-Otsu minimises within-class variance, so a
+                      long tail of towers buys a large variance reduction by taking a
+                      class of its own and pushes both boundaries up with it: on Miami
+                      the plain rule cuts at 1.17 m where every other city cuts between
+                      0.28 and 0.67, and most of the low-rise is called ground.  The
+                      clip costs nothing where there is no tail — it moves the healthy
+                      cities by at most two percent of what any threshold could reach —
+                      and takes Miami from 74% of that ceiling to 99%.  The align tool
+                      asks for 'multiotsu_p85', because p95 leaves enough tail to
+                      reproduce the Miami failure on plates whose tail is longer still:
+                      the Philadelphia miniature cuts at 1.90 where the other plates cut
+                      between 0.54 and 0.85, and its building solve lands 5.2 km out.
+                      At p85 it cuts at 0.77 and solves 110 m from City Hall, while the
+                      plates that already solved do not move -- micropolitan
+                      Philadelphia holds its position exactly as its agreement rises
+                      from 9/16 to 13/16, and the Boston miniature stays at 10 m.
       'pNN'       — the NNth percentile (e.g. 'p50' = legacy median).
       <float str> — explicit residual value.
 
@@ -263,9 +286,12 @@ def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle"
         if m == "triangle":
             from skimage.filters import threshold_triangle
             thr, label = float(threshold_triangle(res_valid)), "triangle"
-        elif m == "multiotsu":
+        elif m == "multiotsu" or _MULTIOTSU_CLIP.fullmatch(m):
             from skimage.filters import threshold_multiotsu
-            thr = float(threshold_multiotsu(res_valid, classes=3)[0]); label = "multiotsu"
+            v, clip = res_valid, _MULTIOTSU_CLIP.fullmatch(m)
+            if clip:
+                v = np.clip(v, None, np.percentile(v, float(clip.group(1))))
+            thr = float(threshold_multiotsu(v, classes=3)[0]); label = m
         elif m.startswith("p") and m[1:].replace(".", "", 1).isdigit():
             pct = float(m[1:]); thr, label = float(np.percentile(res_valid, pct)), m
         else:

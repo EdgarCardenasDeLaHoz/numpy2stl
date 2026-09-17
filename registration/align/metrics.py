@@ -96,6 +96,7 @@ def score_alignment(
     transform: np.ndarray,
     cell_size_m: float | None = None,
     allow_forced_split: bool = True,
+    source_kind: str = "stl",
 ) -> dict:
     """
     Objective registration-quality metrics for a given source→target transform.
@@ -108,6 +109,12 @@ def score_alignment(
     terrain_residual()) — pass the target grid's metres/pixel (e.g.
     report.cell_size_m) so this scores the same segmentation the search
     actually used; omitting it falls back to resolution-naive pixel sizing.
+
+    `source_kind` says how to read the source raster.  The default 'stl' treats it
+    as absolute model z and estimates a ground surface first.  Pass 'osm' when the
+    source already holds height-above-ground with NaN for no building — the export's
+    `stl_heightmap.npy` does — since estimating a ground surface for a raster whose
+    ground has already been removed throws most of the buildings away.
 
     Returns
     -------
@@ -137,7 +144,7 @@ def score_alignment(
     """
     aligned = apply_transform(source, transform, output_shape=target.shape)
 
-    s_mask = building_mask(aligned, source="stl", cell_size_m=cell_size_m,
+    s_mask = building_mask(aligned, source=source_kind, cell_size_m=cell_size_m,
                            allow_forced_split=allow_forced_split)
     t_mask = building_mask(target, source="osm")
 

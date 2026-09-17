@@ -32,6 +32,7 @@ _ROT_IOU_MARGIN = 0.02   # min edge-IoU gain to override the histogram rotation
 
 from .lines import gradient_angle_histogram, rotation_from_angle_histograms
 from .metrics import _dice, _tolerant_iou
+from .mask_source import produce_edges
 from .segmentation import building_edges, terrain_residual, building_mask
 
 def register_global(
@@ -156,7 +157,10 @@ def register_global(
         # can shift edge geometry enough to flip the L0 rotation
         # disambiguator's candidate scores. See building_mask()'s
         # allow_forced_split docstring (measured regression on Bilbao).
-        se_edges = building_edges(source, source="stl", cell_size_m=cell_size_m,
+        # Routed through the mask-producer seam (mask_source.produce_edges) so
+        # the segmentation can be swapped without touching the search; with no
+        # producer installed this IS building_edges.
+        se_edges = produce_edges(source, source="stl", cell_size_m=cell_size_m,
                                    exclude_mask=source_exclude_mask,
                                    allow_forced_split=False).astype(np.float32)
         if se_edges.shape != target.shape:
@@ -388,6 +392,24 @@ def register_global(
     # margin and well below the one measured genuine signal.
     _MIN_ABS_CORR = 0.20
     near0 = min(scored, key=lambda s: abs(s[0]))          # closest to 0°
+
+    # Diagnostic-only footprint edge-IoU per candidate (surfaced in the L0 log).
+    # NOTE: deliberately NOT used to pick the quadrant.  On a near-square street
+    # grid the footprints self-overlap after a 90°/180° flip about as well as (or
+    # BETTER than) at 0° — measured Barcelona: 90.4° edge-IoU 0.276 > 0° 0.193;
+    # Valencia: −90° 0.157 > 0° 0.067 — so edge-IoU is fooled by the same grid
+    # self-alignment that fools height correlation.  It is logged only to show how
+    # ambiguous the overlap signal is on these grids.
+    def _edge_iou_at(rot, dxv, dyv):
+        Mr = cv2.getRotationMatrix2D((cx, cy), float(rot), float(sc0)).astype(np.float32)
+        Mr[0, 2] += dxv
+        Mr[1, 2] += dyv
+        we = cv2.warpAffine((se_edges > 0).astype(np.uint8), Mr, (w, h),
+                            flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+                            borderValue=0).astype(bool)
+        return float(_tolerant_iou(we, te_edges.astype(bool), tol_px=2))
+    _eiou = {round(s[0], 1): _edge_iou_at(s[0], s[2], s[3]) for s in scored}
+
     # Sentinel guard: _height_corr_at returns exactly -1.0 when it could NOT measure
     # a correlation at a candidate (its xcorr translation landed <50 px of building
     # overlap, or a degenerate constant overlap).  That is "unmeasurable", not "a real
@@ -405,6 +427,21 @@ def register_global(
               if s[1] > near0[1] + _STRONG_MARGIN and s[1] >= _MIN_ABS_CORR]
     if near0_unmeasured:
         strong = []   # no valid near-0 baseline → do not let a spurious flip override
+    # DOMINANT 0° prior on a confident histogram (STRENGTHENED): when the line-angle
+    # histogram is confident, it has already pinned the grid orientation to ~0° mod
+    # 90° (both STL and OSM are rendered north-up, so the true STL→OSM rotation is
+    # intrinsically ≈0° for every city in this set).  The remaining {θ,θ+90,θ+180,
+    # θ+270} choice is then purely which grid quadrant — and on a near-square grid
+    # EVERY overlap-based tiebreak (height correlation AND footprint edge-IoU) is
+    # fooled, because the grid self-aligns building-on-building at the flip and
+    # scores a spuriously high "overlap" there (Valencia −90° height-corr 0.376 vs
+    # 0° −0.037; that spurious 0.054 ov_iou match is a FALSE match, not a real one).
+    # So when the histogram is confident, trust its 0°-resolved quadrant and keep
+    # near0 — do NOT let the unreliable height-corr flip it away from ~0°.  (The
+    # override still runs for LOW-confidence / non-grid scenes, where near0 is not
+    # already histogram-anchored and the height-corr tiebreak is the only signal.)
+    if hist_confident:
+        strong = []
     chosen_s = max(strong, key=lambda s: s[1]) if strong else near0
     rc, hc, dx_b, dy_b = chosen_s
     best = (sc0, float(rc), dx_b, dy_b, hc)
@@ -413,8 +450,9 @@ def register_global(
     substep_timings.append(("L0: orientation (height-corr + 0° bias)", t_l0 - t_hist))
     logger.info(
         "  register_global substep: L0 orientation  base=%.1f°  candidates=%s  "
-        "chosen=%.1f° (height-corr=%.3f, 0°-biased)  %.2f s",
+        "edge_iou=%s  chosen=%.1f° (height-corr=%.3f, 0°-biased)  %.2f s",
         base_rot, {round(s[0], 1): round(s[1], 3) for s in scored},
+        {k: round(v, 3) for k, v in _eiou.items()},
         best[1], best[4], t_l0 - t_hist,
     )
     # Rotation comes from the translation-invariant LINE-ANGLE HISTOGRAM; L0 just

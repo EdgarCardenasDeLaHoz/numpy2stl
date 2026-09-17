@@ -24,6 +24,10 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
     """
     import cv2 as _cv2
     from ..align import (register_polygons, vectorize_buildings, building_mask)
+    # STL segmentation routes through the mask-producer seam (identical to
+    # building_mask when no producer is installed); the OSM call below stays
+    # classic because that mask is rasterized ground truth.
+    from ..align.mask_source import produce_mask
     from ..config import REGISTER_RES as _RR
     h, w = osm_reg.shape
 
@@ -37,8 +41,8 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
         stl_polys = [np.column_stack([c0 + p[:, 0] * cols, r0 + p[:, 1] * rows]) for p in prism_polys]
     else:
         stl_polys = vectorize_buildings(
-            building_mask(stl_reg, source="stl", cell_size_m=cell_size_m_reg,
-                          threshold_method="triangle", split_watershed=True), regularize=True)
+            produce_mask(stl_reg, source="stl", cell_size_m=cell_size_m_reg,
+                         threshold_method="triangle", split_watershed=True), regularize=True)
     osm_polys = vectorize_buildings(building_mask(osm_reg, source="osm"))
 
     res = register_polygons(stl_polys, osm_polys, scale_prior=known_scale)
@@ -147,6 +151,7 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
 
     import math as _m
     _peak_scale = _m.hypot(transform[0, 0], transform[1, 0])  # scale before ECC
+    _pre_rot = _m.degrees(_m.atan2(transform[1, 0], transform[0, 0]))  # rotation before ECC
     from ..align import refine_transform as _refine_ecc, score_alignment as _score_align
     # allow_forced_split=False throughout this accept/reject check: it must
     # score the same mask structure the search was tuned against, not the
@@ -161,10 +166,23 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
                            ecc_iterations=300, ecc_eps=1e-6, blur_sigma=1.5)
         _ecc_sim = _project_to_similarity(_ecc["transform"], keep_scale=_peak_scale)
         _post_iou = _score_align(stl_reg, osm_reg, _ecc_sim, allow_forced_split=False)["edge_iou"]
-        if _post_iou > _pre_iou:
+        _post_rot = _m.degrees(_m.atan2(_ecc_sim[1, 0], _ecc_sim[0, 0]))
+        _rot_drift = abs((_post_rot - _pre_rot + 180.0) % 360.0 - 180.0)
+        # ECC is a *fine* refine — it should nudge the alignment, not re-rotate it.
+        # On a periodic / self-similar grid the affine solve can shear into a rotated
+        # quadrant that scores a higher edge IoU yet is geometrically wrong (this is
+        # what drove Barcelona to 45° and Lisbon to −124° off register_global's
+        # correct ~0°).  Trust the global rotation and reject any large swing.
+        _ECC_MAX_ROT_DRIFT_DEG = 5.0
+        if _post_iou > _pre_iou and _rot_drift <= _ECC_MAX_ROT_DRIFT_DEG:
             transform = _ecc_sim
             logger.info("ECC SDF refine accepted (shear-projected): edge IoU "
-                        "%.3f → %.3f (Δ+%.3f)", _pre_iou, _post_iou, _post_iou - _pre_iou)
+                        "%.3f → %.3f (Δ+%.3f, rot drift %.2f°)",
+                        _pre_iou, _post_iou, _post_iou - _pre_iou, _rot_drift)
+        elif _post_iou > _pre_iou:
+            logger.info("ECC SDF refine rejected (rotation drift %.2f° > %.1f°): "
+                        "edge IoU %.3f → %.3f but global rotation kept",
+                        _rot_drift, _ECC_MAX_ROT_DRIFT_DEG, _pre_iou, _post_iou)
         else:
             logger.info("ECC SDF refine rejected: %.3f ≤ %.3f (global kept)",
                         _post_iou, _pre_iou)

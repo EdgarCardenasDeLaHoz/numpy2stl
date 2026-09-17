@@ -31,7 +31,11 @@ report = register_city_stl(
 )
 
 # report is a CityRegistrationReport dataclass
-print(report.registration.confidence)   # 0–1; >0.4 = good alignment
+print(report.registration.confidence)   # raw FFT xcorr peak amplitude — an internal
+                                         # search diagnostic, NOT a match-quality score
+                                         # (no defined ceiling; see "Reading the metrics")
+print(report.comparison.match_score)    # 0–1 composite match-quality score; the
+                                         # number to actually look at (see below)
 print(report.registration.scale)        # spatial scale factor found
 print(report.registration.angle_deg)    # rotation found (degrees)
 print(f"RMSE: {report.comparison.rmse:.1f} m")

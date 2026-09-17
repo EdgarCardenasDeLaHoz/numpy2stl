@@ -463,8 +463,7 @@ _OSM_CACHE_DIR = Path(__file__).parent.parent / "registration" / "runs" / "osm_c
 
 def _osm_cache_path(N, S, E, W, resolution, default_height, levels_to_meters) -> Path:
     import hashlib
-    key = (f"{N:.5f}_{S:.5f}_{E:.5f}_{W:.5f}_r{resolution}_h{default_height}"
-           f"_l{levels_to_meters}_ss{_RASTER_SUPERSAMPLE}_c{_MIN_CELL_COVERAGE}")
+    key = f"{N:.5f}_{S:.5f}_{E:.5f}_{W:.5f}_r{resolution}_h{default_height}_l{levels_to_meters}"
     h = hashlib.md5(key.encode()).hexdigest()[:16]
     return _OSM_CACHE_DIR / f"osm_{h}.npz"
 
@@ -659,26 +658,18 @@ def get_osm_semantic_masks(
     }
     water_tags = {"natural": ["water", "wetland"], "waterway": True, "water": True}
 
-    veg, veg_ok = _rasterize_semantic(veg_tags, N, S, E, W, resolution)
-    water, water_ok = _rasterize_semantic(water_tags, N, S, E, W, resolution)
-    elevated, elev_ok = _rasterize_elevated_roadways(N, S, E, W, resolution)
+    veg = _rasterize_semantic(veg_tags, N, S, E, W, resolution)
+    water = _rasterize_semantic(water_tags, N, S, E, W, resolution)
+    elevated = _rasterize_elevated_roadways(N, S, E, W, resolution)
     logger.info("OSM semantic masks: vegetation=%.1f%%  water=%.1f%%  "
                 "elevated_roadway=%.1f%% of frame",
                 100.0 * veg.mean(), 100.0 * water.mean(), 100.0 * elevated.mean())
 
-    # A fetch that never answered produces the same all-False mask as a bbox that
-    # genuinely holds no parks, and caching the two alike turns one bad afternoon on
-    # Overpass into a permanent "there is no vegetation here".  Lisbon was cached that
-    # way -- vegetation, water and bridges all zero across a frame containing the Tagus --
-    # and stayed wrong through every later run, because a cache hit never retries.
-    if cache and veg_ok and water_ok and elev_ok:
+    if cache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         np.savez_compressed(cache_path, vegetation=veg, water=water,
                             elevated_roadway=elevated)
         logger.info("Cached OSM semantic masks: %s", cache_path.name)
-    elif cache:
-        logger.warning("Not caching OSM semantic masks for this bbox: a fetch failed "
-                       "(vegetation=%s water=%s elevated=%s)", veg_ok, water_ok, elev_ok)
 
     return {
         "vegetation": veg,
@@ -689,31 +680,26 @@ def get_osm_semantic_masks(
     }
 
 
-def _rasterize_semantic(tags: dict, N, S, E, W, resolution: int) -> tuple[np.ndarray, bool]:
-    """Fetch polygons for `tags` and rasterize to a boolean presence mask.
-
-    Returns the mask and whether the fetch itself succeeded.  The two are not the same
-    thing -- an empty mask means either "no such feature in this bbox" or "Overpass never
-    answered" -- and the caller has to tell them apart before caching the result.
-    """
+def _rasterize_semantic(tags: dict, N, S, E, W, resolution: int) -> np.ndarray:
+    """Fetch polygons for `tags` and rasterize to a boolean presence mask."""
     empty = np.zeros((resolution, resolution), dtype=bool)
     try:
         gdf = _features_from_bbox(N, S, E, W, tags)
     except Exception as e:
         logger.warning("OSM semantic fetch failed for %s (%s); empty mask.",
                        list(tags), e)
-        return empty, False
+        return empty
 
     if gdf is None or len(gdf) == 0:
-        return empty, True
+        return empty
     poly = gdf[gdf.geometry.geom_type.isin(["Polygon", "MultiPolygon"])].copy()
     if len(poly) == 0:
-        return empty, True
+        return empty
 
     # Reuse the building rasterizer with a constant height of 1.0 → presence.
     poly["height_m"] = 1.0
     arr = _rasterize_buildings(poly, N, S, E, W, resolution)
-    return ~np.isnan(arr), True
+    return ~np.isnan(arr)
 
 
 # Fallback roadway width (metres) when OSM has no width/lanes tag, by highway
@@ -727,7 +713,7 @@ _HIGHWAY_DEFAULT_WIDTH_M = {
 _HIGHWAY_FALLBACK_WIDTH_M = 7.0  # any other bridge-tagged highway class
 
 
-def _rasterize_elevated_roadways(N, S, E, W, resolution: int) -> tuple[np.ndarray, bool]:
+def _rasterize_elevated_roadways(N, S, E, W, resolution: int) -> np.ndarray:
     """Fetch bridge/viaduct highway ways and rasterize a buffered presence mask.
 
     OSM roads are LineStrings with no inherent width, so real-world width is
@@ -749,17 +735,17 @@ def _rasterize_elevated_roadways(N, S, E, W, resolution: int) -> tuple[np.ndarra
             N, S, E, W, {"bridge": ["yes", "viaduct", "aqueduct"]})
     except Exception as e:
         logger.warning("OSM elevated-roadway fetch failed (%s); empty mask.", e)
-        return empty, False
+        return empty
 
     if gdf is None or len(gdf) == 0:
-        return empty, True
+        return empty
     ways = gdf[gdf.geometry.geom_type.isin(["LineString", "MultiLineString"])].copy()
     if len(ways) == 0:
-        return empty, True
+        return empty
     if "highway" in ways.columns:
         ways = ways[ways["highway"].notna()]
     if len(ways) == 0:
-        return empty, True
+        return empty
 
     # Degrees-per-metre at this latitude, for buffering a geographic LineString
     # by a real-world half-width (buffer() operates in the geometry's own units).
@@ -818,11 +804,11 @@ def _rasterize_elevated_roadways(N, S, E, W, resolution: int) -> tuple[np.ndarra
     ]
     ways = ways[ways.geometry.notna() & ~ways.geometry.is_empty]
     if len(ways) == 0:
-        return empty, True
+        return empty
 
     ways["height_m"] = 1.0
     arr = _rasterize_buildings(ways, N, S, E, W, resolution)
-    return ~np.isnan(arr), True
+    return ~np.isnan(arr)
 
 
 # ---------------------------------------------------------------------------
@@ -863,38 +849,11 @@ def _rasterize_buildings(gdf, N, S, E, W, resolution: int) -> np.ndarray:
     return _rasterize_numpy(gdf, N, S, E, W, resolution)
 
 
-# The building raster is drawn at this multiple of the requested grid and then averaged
-# down, and a cell is called built when at least this fraction of it is covered.
-_RASTER_SUPERSAMPLE = 4
-_MIN_CELL_COVERAGE = 0.30
-
-
 def _rasterize_rasterio(gdf, N, S, E, W, resolution: int) -> np.ndarray:
-    """Rasterize buildings by area coverage, so the streets between them survive.
-
-    ``all_touched=True`` marks every cell a polygon so much as clips, which grows each
-    footprint by up to a cell on all four sides.  At the roughly 6 m per cell these grids
-    run at, that is wide enough to close an ordinary street, and neighbouring buildings
-    weld into one block: the mask stops describing buildings and starts describing city
-    blocks, which is not what the plate rasters are being matched against.
-
-    Turning the flag off instead would lose every footprint narrower than a cell, so the
-    drawing is done on a grid ``_RASTER_SUPERSAMPLE`` times finer, where an ordinary
-    building is many cells across, and averaged back down.  What comes out of the
-    averaging is the fraction of each output cell that is built, which is the honest
-    quantity; a cell counts as a building at ``_MIN_CELL_COVERAGE``, so a footprint a
-    third of a cell wide still registers while the gap between two of them does not fill
-    in.
-
-    The height returned for a cell is the area-weighted mean over its covered subcells.
-    The old whole-cell burn approximated that for an interior cell and got it wrong at
-    every edge, where whichever overlapping polygon rasterio drew last won the cell
-    outright.
-    """
-    ss = max(1, int(_RASTER_SUPERSAMPLE))
-    fine = resolution * ss
+    """Rasterize using rasterio — fast and handles edge cases well."""
     # from_bounds produces a north-up transform (row 0 = north)
-    transform = from_bounds(west=W, south=S, east=E, north=N, width=fine, height=fine)
+    transform = from_bounds(west=W, south=S, east=E, north=N,
+                            width=resolution, height=resolution)
 
     shapes = [
         (geom, float(h))
@@ -905,31 +864,27 @@ def _rasterize_rasterio(gdf, N, S, E, W, resolution: int) -> np.ndarray:
     if not shapes:
         return np.full((resolution, resolution), np.nan, dtype=np.float64)
 
-    heights = rio_rasterize(
+    arr = rio_rasterize(
         shapes,
-        out_shape=(fine, fine),
+        out_shape=(resolution, resolution),
         transform=transform,
         fill=0.0,
-        all_touched=False,
-        dtype=np.float64,
-    )
-    # Presence is rasterized separately so a building tagged zero metres still counts as a
-    # building; against a fill of 0.0 a zero height is otherwise indistinguishable from
-    # empty ground.
-    presence = rio_rasterize(
-        [(geom, 1.0) for geom, _ in shapes],
-        out_shape=(fine, fine),
-        transform=transform,
-        fill=0.0,
-        all_touched=False,
+        all_touched=True,
         dtype=np.float64,
     )
 
-    blocks = (resolution, ss, resolution, ss)
-    covered = presence.reshape(blocks).sum(axis=(1, 3))
-    with np.errstate(invalid="ignore", divide="ignore"):
-        arr = (heights * presence).reshape(blocks).sum(axis=(1, 3)) / covered
-    arr[covered / float(ss * ss) < _MIN_CELL_COVERAGE] = np.nan
+    # Mark cells with no building as NaN (fill=0 means "no building touched here")
+    # We distinguish NaN (no building) from 0 (a building with zero height, rare)
+    # by using a separate rasterization of footprint presence.
+    presence = rio_rasterize(
+        [(geom, 1.0) for geom, _ in shapes],
+        out_shape=(resolution, resolution),
+        transform=transform,
+        fill=0.0,
+        all_touched=True,
+        dtype=np.float64,
+    )
+    arr[presence == 0] = np.nan
 
     # Flip to row 0 = south (matches mesh_to_heightmap convention)
     return np.flipud(arr)

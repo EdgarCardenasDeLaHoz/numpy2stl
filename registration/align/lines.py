@@ -81,7 +81,35 @@ def rotation_from_angle_histograms(
     # 1-D circular cross-correlation via FFT
     xcorr = np.fft.irfft(np.conj(np.fft.rfft(s)) * np.fft.rfft(t), n=n)
 
+    # --- 0°-preferring peak selection (harmonic-tie breaker) --------------
+    # A rectangular street grid puts wall energy at BOTH θ and θ+90° (and, on a
+    # mixed grid, at θ±45° too), so the src↔tgt angle cross-correlation grows a
+    # CLUSTER of near-equal peaks 45°/90° apart.  Plain argmax then picks whichever
+    # harmonic wins by numerical noise — on Barcelona −45° beat the true 0° by
+    # 3e-5, on Valencia 90° beat 0° by 5e-5.  For THIS pipeline the STL and OSM are
+    # both rendered north-up, so the true STL→OSM rotation is intrinsically ~0°;
+    # every non-zero peak here is a grid self-alignment alias, not a real rotation.
+    # So: among all peaks within a small relative tolerance of the global max,
+    # choose the one whose folded rotation is CLOSEST TO 0°.  A genuinely rotated
+    # grid still wins because its true peak stands clear of the tolerance band;
+    # only true near-ties (where 0° is within a whisker of the max) get pulled to 0.
+    _gmax = float(xcorr.max())
+    _gmin = float(xcorr.min())
+    _span = _gmax - _gmin + 1e-12
     peak_bin = int(np.argmax(xcorr))
+    # local maxima (circular) that are within 2% of the peak's prominence above min
+    _TIE_FRAC = 0.02
+    _thr = _gmax - _TIE_FRAC * _span
+    _prev = np.roll(xcorr, 1)
+    _next = np.roll(xcorr, -1)
+    _is_localmax = (xcorr >= _prev) & (xcorr >= _next) & (xcorr >= _thr)
+    _cand_bins = np.nonzero(_is_localmax)[0]
+    if _cand_bins.size > 1:
+        def _fold_deg(b):
+            d = b * 180.0 / n
+            return d - 180.0 if d > 90.0 else d
+        # pick the near-tie candidate with the smallest |folded rotation|
+        peak_bin = int(min(_cand_bins, key=lambda b: abs(_fold_deg(int(b)))))
     # Sub-bin (sub-degree) refinement: parabolic interpolation through the peak
     # and its two circular neighbours.  The histogram is only 1°/bin, but the
     # true grid angle is continuous — the parabola vertex recovers the fraction.

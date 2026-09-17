@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from .transform import _preprocess_for_registration, apply_transform, _decompose_matrix, _compose_resize_scale
 from .segmentation import _base_plate_threshold, terrain_residual, building_mask, _component_features, building_edges, vectorize_buildings, split_touching_buildings, _regularize_polygon, hill_relief_mask
+from .mask_source import produce_mask, produce_edges, use_mask_producer, use_config, active_mask_producer
 from .lines import gradient_angle_histogram, rotation_from_angle_histograms
 from .metrics import _tolerant_iou, _dice, _mask_sdf, score_alignment
 from .scale import estimate_scale, _fourier_profile_scale
@@ -33,6 +34,11 @@ __all__ = [
     "split_touching_buildings",
     "_regularize_polygon",
     "hill_relief_mask",
+    "produce_mask",
+    "produce_edges",
+    "use_mask_producer",
+    "use_config",
+    "active_mask_producer",
     "gradient_angle_histogram",
     "rotation_from_angle_histograms",
     "_tolerant_iou",

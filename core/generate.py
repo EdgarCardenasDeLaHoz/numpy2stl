@@ -129,9 +129,15 @@ def array_to_mesh(
         logger.info(f"Generated mesh with {len(verts)} vertices, {len(faces_idx)} faces")
         return verts, faces_idx
     except Exception:
-        # Fallback: return raw triangles if indexing fails
-        logger.warning("Failed to index vertices, returning raw triangles")
-        return all_triangles
+        # Every caller unpacks two values, so returning the raw triangle array
+        # turned a recoverable indexing failure into an unpacking error one
+        # frame away from the real cause. Build the trivial index instead:
+        # three vertices per triangle, duplicated wherever triangles meet.
+        # Downstream trimesh repair merges the duplicates.
+        logger.warning("Failed to index vertices, falling back to unmerged triangles")
+        verts = all_triangles.reshape(-1, 3)
+        faces_idx = np.arange(len(verts), dtype=np.int64).reshape(-1, 3)
+        return verts, faces_idx
 
 
 def array2faces__(A, mask_val=0):

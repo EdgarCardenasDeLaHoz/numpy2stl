@@ -29,6 +29,11 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
     footprint polygons (prism polys mapped into OSM space, else hi-res detection).
     """
     from ..align import building_mask as _building_mask, terrain_residual as _terrain_residual
+    # STL segmentation goes through the mask-producer seam so it can be swapped
+    # for a learned segmenter; with no producer installed produce_mask IS
+    # _building_mask.  OSM masks stay on the classic call: they are
+    # ~np.isnan(rasterized footprints), i.e. ground truth, not an estimate.
+    from ..align.mask_source import produce_mask as _produce_mask
 
     def _warp_mask_compare(T):
         s_al = apply_transform(stl_hm, T, osm_hm.shape)
@@ -54,8 +59,8 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
             bmask = _m.astype(bool)
         else:
             # working-res, dense (p50) split — many STL cells per OSM footprint.
-            bmask = _building_mask(s_al, source="stl", cell_size_m=cell_size_m,
-                                   segment_features=True, fill_holes_px=None)
+            bmask = _produce_mask(s_al, source="stl", cell_size_m=cell_size_m,
+                                  segment_features=True, fill_holes_px=None)
         # Exclude STL cells OSM labels as vegetation, water, or an elevated
         # roadway (bridges/overpasses rise above local terrain the same way a
         # building does, but have no OSM building footprint to match against).
@@ -94,7 +99,7 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
         try:
             from ..align import (vectorize_buildings as _vec0,
                                  refine_registration_polygons as _poly_icp)
-            _stl_polys = _vec0(_building_mask(stl_aligned, source="stl",
+            _stl_polys = _vec0(_produce_mask(stl_aligned, source="stl",
                                cell_size_m=cell_size_m, split_watershed=True),
                                regularize=True)
             _osm_polys = _vec0(_building_mask(osm_hm, source="osm"))
@@ -173,7 +178,7 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
             stl_hi_al = apply_transform(
                 stl_hi, T_hi,
                 (osm_hm.shape[0] * detect_factor, osm_hm.shape[1] * detect_factor))
-            mask_hi = _building_mask(
+            mask_hi = _produce_mask(
                 stl_hi_al, source="stl", cell_size_m=cell_size_m / detect_factor,
                 threshold_method="triangle", segment_features=True, fill_holes_px=None,
                 split_watershed=regularize_footprints)

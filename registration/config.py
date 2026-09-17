@@ -13,6 +13,7 @@ module-level constants below, so nothing has to thread the whole object.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Callable
 
 # --- Geometry / fetch ------------------------------------------------------
 # OSM frame is fetched at this multiple of the STL footprint.  Larger frames
@@ -102,6 +103,29 @@ class RegistrationConfig:
     scale_sweep_step: float = DEFAULT_SCALE_SWEEP_STEP
     dice_rot_window_deg: float = DEFAULT_DICE_ROT_WINDOW_DEG
     hough_min_length_frac: float = DEFAULT_HOUGH_MIN_LENGTH_FRAC
+
+    # Constants that previously had no home on the config even though they are
+    # exactly as tunable as the ones above.
+    threshold_method: str = DEFAULT_BUILDING_THRESHOLD
+    detect_resolution_factor: int = DEFAULT_DETECT_RESOLUTION_FACTOR
+    register_res: int = REGISTER_RES
+
+    # --- The mask-producer seam ---------------------------------------------
+    # Optional replacement for the classic `building_mask` segmentation.  None
+    # (the default) means classic behaviour, byte for byte.  A producer has
+    # `building_mask`'s signature — (heightmap, source=..., **kwargs) -> bool
+    # ndarray of the same shape — and must tolerate keyword arguments it does
+    # not use, since call sites pass the classic tuning knobs.
+    #
+    # Only STL heightmaps route through it: OSM masks are `~np.isnan(...)` of
+    # rasterized footprints, i.e. ground truth rather than an estimate.
+    #
+    # Install it with `align.mask_source.use_config(cfg)`; the pipeline is not
+    # yet threaded with a config object, so nothing reads this field
+    # automatically.  See align/mask_source.py for the seam itself and
+    # docs/registration-learning-plan.md for why segmentation is the axis
+    # worth making swappable.
+    mask_producer: Callable | None = None
 
 
 DEFAULT_CONFIG = RegistrationConfig()
