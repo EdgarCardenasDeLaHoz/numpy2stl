@@ -10,3 +10,8 @@ registration/runs/region_reports/*/assets
 
 # Runtime cache written by tests and pipeline runs
 /cache/
+
+# Venvs live in ~/.venvs/<project>, never in this OneDrive tree
+.venv/
+venv/
+env/
