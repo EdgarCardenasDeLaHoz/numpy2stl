@@ -18,6 +18,8 @@ from typing import Union
 import numpy as np
 import pandas as pd
 
+from .._paths import CACHE_ROOT
+
 logger = logging.getLogger(__name__)
 
 # Per-city config used for scale estimation and tight bbox generation.
@@ -458,7 +460,7 @@ def find_best_city_center(
     }
 
 
-_OSM_CACHE_DIR = Path(__file__).parent.parent / "registration" / "runs" / "osm_cache"
+_OSM_CACHE_DIR = CACHE_ROOT / "osm_cache"
 
 
 def _osm_cache_path(N, S, E, W, resolution, default_height, levels_to_meters) -> Path:

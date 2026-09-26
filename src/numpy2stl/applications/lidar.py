@@ -28,9 +28,11 @@ from pathlib import Path
 
 import numpy as np
 
+from .._paths import CACHE_ROOT
+
 logger = logging.getLogger(__name__)
 
-_NDSM_CACHE_DIR = Path(__file__).parent.parent / "registration" / "runs" / "ndsm_cache"
+_NDSM_CACHE_DIR = CACHE_ROOT / "ndsm_cache"
 # USGS public 3DEP EPT resource index (project boundaries -> ept.json URLs).
 _USGS_EPT_RESOURCES = (
     "https://raw.githubusercontent.com/hobuinc/usgs-lidar/master/boundaries/resources.geojson"

@@ -5,6 +5,9 @@ pytest.importorskip("pytest_benchmark", reason="pytest-benchmark not installed")
 
 from numpy2stl import array_to_mesh
 
+# Opt-in: pytest -m slow tests/benchmarks
+pytestmark = pytest.mark.slow
+
 
 class TestArrayToMeshPerformance:
     """Benchmark array_to_mesh function."""

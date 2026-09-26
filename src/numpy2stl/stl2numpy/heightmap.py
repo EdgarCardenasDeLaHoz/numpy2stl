@@ -11,13 +11,15 @@ import numpy as np
 
 from ..io.readers import _load_trimesh_mesh
 
+from .._paths import CACHE_ROOT
+
 logger = logging.getLogger(__name__)
 
 _MAX_RESOLUTION = 1000
 _OVERSAMPLING = 32  # sample this many points per output cell (16 causes 0.01% empty; 32 → near-zero)
 
 # Cache directory for computed heightmaps (the 3MF/STL load + sampling is slow).
-_STL_CACHE_DIR = Path(__file__).parent.parent / "registration" / "runs" / "stl_cache"
+_STL_CACHE_DIR = CACHE_ROOT / "stl_cache"
 
 
 def _stl_cache_path(file_path: str, resolution, projection, z_axis, allow_large,

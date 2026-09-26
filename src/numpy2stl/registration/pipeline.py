@@ -16,14 +16,13 @@ from pathlib import Path
 
 import numpy as np
 
+from .._paths import REPORTS_ROOT
+
 logger = logging.getLogger(__name__)
 
-# Default output root: a single gitignored repo-level _reports/ folder (NOT inside the
-# package source tree).  _MODULE_ROOT = Code/numpy2stl/registration; parents[1] = Code/.
-# Generated reports are regeneratable artifacts — never committed.  An explicit out_dir
-# (e.g. --out into the data tree) overrides this.
-_MODULE_ROOT = Path(__file__).parent
-RUNS_DIR = _MODULE_ROOT.parents[1] / "_reports"
+# Generated reports are regeneratable artifacts, never committed; see numpy2stl._paths.
+# An explicit out_dir (e.g. --out into the data tree) overrides this.
+RUNS_DIR = REPORTS_ROOT
 
 
 def _default_out_dir(region_name: str) -> Path:

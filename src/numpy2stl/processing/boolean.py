@@ -66,10 +66,9 @@ def cut_puzzle_pieces(model, puzzle):
     return pieces_out
 
 
-import manifold3d as mfd
-
-
 def cut_puzzle_pieces_manifold(model, puzzle):
+    import manifold3d as mfd  # optional extra: numpy2stl[boolean]
+
     pieces_out = {}
 
     vx_m, fs_m = model
