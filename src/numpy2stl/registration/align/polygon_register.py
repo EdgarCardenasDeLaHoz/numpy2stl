@@ -43,7 +43,10 @@ def _descriptors(polys):
         a = m["m00"]
         if a <= 1e-6:                       # degenerate → fall back to vertex mean
             c = p.mean(axis=0)
-            cents.append(c); areas.append(max(a, 1.0)); orients.append(0.0); eccs.append(0.0)
+            cents.append(c)
+            areas.append(max(a, 1.0))
+            orients.append(0.0)
+            eccs.append(0.0)
             continue
         cx, cy = m["m10"] / a, m["m01"] / a
         mu20, mu02, mu11 = m["mu20"] / a, m["mu02"] / a, m["mu11"] / a
@@ -51,9 +54,13 @@ def _descriptors(polys):
         # eccentricity from the covariance eigenvalues
         tr, det = mu20 + mu02, mu20 * mu02 - mu11 ** 2
         disc = max(0.0, (tr / 2) ** 2 - det)
-        l1 = tr / 2 + np.sqrt(disc); l2 = tr / 2 - np.sqrt(disc)
+        l1 = tr / 2 + np.sqrt(disc)
+        l2 = tr / 2 - np.sqrt(disc)
         ecc = float(np.sqrt(1 - l2 / l1)) if l1 > 1e-9 else 0.0
-        cents.append([cx, cy]); areas.append(float(a)); orients.append(float(orient)); eccs.append(ecc)
+        cents.append([cx, cy])
+        areas.append(float(a))
+        orients.append(float(orient))
+        eccs.append(ecc)
     return (np.asarray(cents, dtype=np.float64), np.asarray(areas),
             np.asarray(orients), np.asarray(eccs))
 
@@ -86,7 +93,8 @@ def register_polygons(
            "angle_deg": 0.0, "n_inliers": 0, "confidence": 0.0, "applied": False,
            "reason": ""}
     if not HAS_CV2:
-        out["reason"] = "opencv unavailable"; return out
+        out["reason"] = "opencv unavailable"
+        return out
     if len(stl_polys) < 3 or len(osm_polys) < 3:
         out["reason"] = f"too few polygons (stl={len(stl_polys)}, osm={len(osm_polys)})"
         return out
@@ -96,7 +104,8 @@ def register_polygons(
     try:
         from scipy.spatial import cKDTree
     except Exception:
-        out["reason"] = "scipy unavailable"; return out
+        out["reason"] = "scipy unavailable"
+        return out
     tree = cKDTree(oc)
 
     # Inlier radius: a fraction of the typical OSM building size.
@@ -133,10 +142,12 @@ def register_polygons(
     counts = []       # inlier count of every valid candidate (the null distribution)
     for _ in range(n_iter):
         i, j = rng.choice(stl_pool, 2, replace=False)
-        k = int(rng.choice(cand[i])); l = int(rng.choice(cand[j]))
-        if k == l:
+        k = int(rng.choice(cand[i]))
+        osm_j = int(rng.choice(cand[j]))
+        if k == osm_j:
             continue
-        vs = sc[j] - sc[i]; vo = oc[l] - oc[k]
+        vs = sc[j] - sc[i]
+        vo = oc[osm_j] - oc[k]
         ls, lo = np.hypot(*vs), np.hypot(*vo)
         if ls < 1e-3 or lo < 1e-3:
             continue

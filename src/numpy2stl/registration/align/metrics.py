@@ -8,6 +8,9 @@ import logging
 
 import numpy as np
 
+from .segmentation import building_edges, building_mask
+from .transform import apply_transform
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -18,14 +21,12 @@ except ImportError:
     HAS_CV2 = False
 
 try:
-    from scipy.ndimage import sobel, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel
     HAS_SCIPY = True
 except ImportError:
     sobel = gaussian_filter = None
     HAS_SCIPY = False
 
-from .segmentation import building_edges, building_mask
-from .transform import apply_transform
 
 def _tolerant_iou(s_mask: np.ndarray, t_mask: np.ndarray, tol_px: int = 1) -> float:
     """

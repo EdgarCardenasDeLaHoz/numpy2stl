@@ -19,7 +19,7 @@ except ImportError:
     HAS_CV2 = False
 
 try:
-    from scipy.ndimage import sobel, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel
     HAS_SCIPY = True
 except ImportError:
     sobel = gaussian_filter = None
@@ -274,7 +274,6 @@ def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle"
     (mask would be <2% or >90% of valid cells).
     """
     p50 = float(np.percentile(res_valid, 50))
-    n = res_valid.size
     def _cov(t):  # fraction of valid cells kept
         return float((res_valid > t).mean())
 
@@ -289,9 +288,11 @@ def _adaptive_residual_threshold(res_valid: np.ndarray, method: str = "triangle"
             v, clip = res_valid, _MULTIOTSU_CLIP.fullmatch(m)
             if clip:
                 v = np.clip(v, None, np.percentile(v, float(clip.group(1))))
-            thr = float(threshold_multiotsu(v, classes=3)[0]); label = m
+            thr = float(threshold_multiotsu(v, classes=3)[0])
+            label = m
         elif m.startswith("p") and m[1:].replace(".", "", 1).isdigit():
-            pct = float(m[1:]); thr, label = float(np.percentile(res_valid, pct)), m
+            pct = float(m[1:])
+            thr, label = float(np.percentile(res_valid, pct)), m
         else:
             thr, label = float(m), "fixed"
     except Exception:
@@ -485,7 +486,7 @@ def building_mask(
             r_thr = float(np.percentile(roughs, 70))
             p_thr = float(np.percentile(planars, 70))
             rejected = 0
-            for (i, rough, planar, area) in candidate:
+            for (i, rough, planar, _area) in candidate:
                 if rough > r_thr and planar > p_thr:
                     rejected += 1               # rough AND non-planar small blob → tree
                 else:
@@ -510,8 +511,10 @@ def building_mask(
             h_, w_ = keep.shape
             filled = 0
             for j in range(1, nb):
-                x0 = bstats[j, cv2.CC_STAT_LEFT]; y0 = bstats[j, cv2.CC_STAT_TOP]
-                bw = bstats[j, cv2.CC_STAT_WIDTH]; bh = bstats[j, cv2.CC_STAT_HEIGHT]
+                x0 = bstats[j, cv2.CC_STAT_LEFT]
+                y0 = bstats[j, cv2.CC_STAT_TOP]
+                bw = bstats[j, cv2.CC_STAT_WIDTH]
+                bh = bstats[j, cv2.CC_STAT_HEIGHT]
                 area = int(bstats[j, cv2.CC_STAT_AREA])
                 touches_border = (x0 == 0 or y0 == 0 or x0 + bw >= w_ or y0 + bh >= h_)
                 if not touches_border and area < fill_holes_px:
@@ -600,7 +603,7 @@ def split_touching_buildings(
     try:
         from scipy import ndimage as ndi
         from skimage.morphology import h_maxima
-        from skimage.segmentation import watershed, find_boundaries
+        from skimage.segmentation import find_boundaries, watershed
     except Exception:
         return m
 

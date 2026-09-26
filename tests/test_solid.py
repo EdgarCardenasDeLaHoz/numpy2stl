@@ -1,7 +1,8 @@
 # Tests for solid.py - Solid class and mesh operations
 import numpy as np
 import pytest
-from numpy2stl import Solid, vertices_to_index, get_open_edges, triangles_to_facets, validate_object
+
+from numpy2stl import Solid, get_open_edges, triangles_to_facets, validate_object, vertices_to_index
 
 
 class TestSolid:

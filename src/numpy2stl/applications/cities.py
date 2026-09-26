@@ -349,6 +349,7 @@ def find_best_city_center(
     }
     """
     import math
+
     from ..registration.align import register_global
     from ..registration.config import CENTER_SEARCH_DICE_MARGIN, CENTER_SEARCH_ROT_MARGIN
     from ..registration.stages import _is_locked_registration
@@ -900,7 +901,7 @@ def _rasterize_rasterio(gdf, N, S, E, W, resolution: int) -> np.ndarray:
 
     shapes = [
         (geom, float(h))
-        for geom, h in zip(gdf.geometry, gdf["height_m"])
+        for geom, h in zip(gdf.geometry, gdf["height_m"], strict=True)
         if geom is not None and not geom.is_empty
     ]
 
@@ -939,10 +940,6 @@ def _rasterize_rasterio(gdf, N, S, E, W, resolution: int) -> np.ndarray:
 
 def _rasterize_numpy(gdf, N, S, E, W, resolution: int) -> np.ndarray:
     """Pure-numpy fallback rasterization (slow but dependency-free)."""
-    try:
-        from shapely.geometry import mapping
-    except ImportError:
-        pass
 
     arr = np.full((resolution, resolution), np.nan, dtype=np.float64)
     dx = (E - W) / resolution

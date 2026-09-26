@@ -9,14 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
+from ._common import _imshow_heightmap, _render_single_heightmap
+
 logger = logging.getLogger(__name__)
 
 try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
-    from matplotlib.patches import Patch
     HAS_MPL = True
 except ImportError:
     plt = None
@@ -27,7 +27,6 @@ except ImportError:
 # Public render functions (one per asset PNG)
 # ---------------------------------------------------------------------------
 
-from ._common import _imshow_heightmap, _render_single_heightmap
 
 def render_stl_heightmap_png(out_path: str | Path, stl_hm: np.ndarray) -> Path:
     """STL 2D projection -- viridis, NaN shown in light gray."""

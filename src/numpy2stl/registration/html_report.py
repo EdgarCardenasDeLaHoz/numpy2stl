@@ -17,26 +17,26 @@ _CONFIDENCE_THRESHOLD_WARN = 0.2
 
 def write_registration_report(out_dir: str | Path, report) -> Path:
     from .report_plots import (
+        render_aligned_png,
         render_angle_histogram_png,
         render_binarization_png,
-        render_vectorized_png,
-        render_xcorr_map_png,
         render_comparison_png,
         render_corrected_difference_png,
+        render_decimation_curve_png,
+        render_decimation_png,
         render_difference_hist_png,
         render_footprint_rgchannel_png,
         render_mask_overlay_png,
         render_matched_buildings_png,
         render_missing_analysis_png,
         render_osm_heightmap_png,
+        render_prism_decomposition_png,
         render_rot_sweep_png,
         render_scale_sweep_png,
         render_stl_heightmap_png,
-        render_aligned_png,
         render_transform_summary_png,
-        render_decimation_png,
-        render_decimation_curve_png,
-        render_prism_decomposition_png,
+        render_vectorized_png,
+        render_xcorr_map_png,
     )
 
     out_dir = Path(out_dir)
@@ -121,9 +121,10 @@ def render_registration_index(report, asset_paths: dict) -> str:
 
     # --- Alignment quality metrics ---
     try:
+        import numpy as _np
+
         from .align import score_alignment
         from .compare import _composite_match_score
-        import numpy as _np
         sc = score_alignment(report.stl_aligned, report.osm_heightmap,
                              _np.array([[1,0,0],[0,1,0]], dtype=float),
                              cell_size_m=getattr(report, "cell_size_m", None))
@@ -503,7 +504,8 @@ def _decimation_section(report, asset_paths: dict) -> str:
     st = getattr(report, "_simplify_stats", None)
     if st is None or asset_paths.get("decimation") is None:
         return ""
-    f0 = st.get("orig_faces", 0); f1 = st.get("simplified_faces", 0)
+    f0 = st.get("orig_faces", 0)
+    f1 = st.get("simplified_faces", 0)
     pct = 100.0 * f1 / f0 if f0 else 0.0
     haus_m = st.get("hausdorff_m", float("nan"))
     budget = st.get("deviation_tol_m_metres", float("nan"))

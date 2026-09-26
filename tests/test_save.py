@@ -1,6 +1,7 @@
 # Tests for save.py - Export functions
 import numpy as np
-from numpy2stl import writeSTL, write3MF, writeOBJ, triangles_to_facets
+
+from numpy2stl import triangles_to_facets, write3MF, writeOBJ, writeSTL
 
 
 class TestWriteSTL:
@@ -77,8 +78,8 @@ class TestWrite3MF:
 
         assert tmp_3mf_file.exists()
 
-        import zipfile
         import xml.etree.ElementTree as ET
+        import zipfile
 
         with zipfile.ZipFile(tmp_3mf_file, "r") as zf:
             model_xml = zf.read("3D/3dmodel.model").decode("utf-8")
@@ -117,8 +118,8 @@ class TestWriteOBJ:
         assert "f " in content  # Faces
 
         # Count vertices and faces
-        vertex_lines = [l for l in content.split("\n") if l.startswith("v ")]
-        face_lines = [l for l in content.split("\n") if l.startswith("f ")]
+        vertex_lines = [line for line in content.split("\n") if line.startswith("v ")]
+        face_lines = [line for line in content.split("\n") if line.startswith("f ")]
 
         assert len(vertex_lines) == 8  # Cube has 8 vertices
         assert len(face_lines) == 12  # Cube has 12 triangular faces
@@ -154,7 +155,7 @@ class TestWriteOBJ:
         lines = content.split("\n")
 
         # Find face lines
-        face_lines = [l for l in lines if l.startswith("f ")]
+        face_lines = [line for line in lines if line.startswith("f ")]
 
         # First face should use indices 1, 2, 3
         assert "f 1 2 3" in face_lines[0]

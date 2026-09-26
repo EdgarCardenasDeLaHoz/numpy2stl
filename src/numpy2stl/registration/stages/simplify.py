@@ -31,9 +31,10 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
     if mode == "off":
         return out
     try:
-        from ...applications.cities import derive_scale_m_per_unit
-        import tempfile
         import os as _os
+        import tempfile
+
+        from ...applications.cities import derive_scale_m_per_unit
         m_per_unit = derive_scale_m_per_unit(
             city_name, stl_z_max, tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit)
         if not m_per_unit or m_per_unit <= 0:
@@ -93,8 +94,8 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
                     isotropic=True)["heightmap"])
                 if decimation_curve:
                     try:
-                        from ...processing.building_simplify import decimation_sweep
                         from ...io.readers import _load_trimesh_mesh
+                        from ...processing.building_simplify import decimation_sweep
                         out["decimation_sweep"] = timed(
                             "Decimation sweep (curve)", decimation_sweep,
                             _load_trimesh_mesh(str(stl_file)), m_per_unit=m_per_unit)

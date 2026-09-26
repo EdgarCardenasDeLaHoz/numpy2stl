@@ -75,7 +75,7 @@ def main(argv=None):
     cities = {args.city: CITIES[args.city]} if args.city else CITIES
     if args.check:
         print(f"{'city':<12}{'tallest_m':>10}  STL (size %s)" % args.size)
-        for name, (region, folder, tall) in cities.items():
+        for name, (_region, folder, tall) in cities.items():
             stl = _find_stl(folder, args.size)
             print(f"{name:<12}{tall:>10.0f}  {stl.name if stl else '!! NOT FOUND'}")
         return 0

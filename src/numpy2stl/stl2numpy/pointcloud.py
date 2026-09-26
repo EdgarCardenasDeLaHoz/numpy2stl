@@ -39,8 +39,8 @@ def mesh_to_pointcloud(
     """
     try:
         import trimesh
-    except ImportError:
-        raise ImportError("trimesh is required. Install with: pip install trimesh")
+    except ImportError as err:
+        raise ImportError("trimesh is required. Install with: pip install trimesh") from err
 
     mesh = _load_trimesh_mesh(file_path)
 

@@ -11,6 +11,8 @@ import logging
 
 import numpy as np
 
+from .segmentation import building_mask
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -19,8 +21,6 @@ try:
 except ImportError:
     cv2 = None
     HAS_CV2 = False
-
-from .segmentation import building_mask
 
 
 def estimate_scale(source: np.ndarray, target: np.ndarray) -> dict:

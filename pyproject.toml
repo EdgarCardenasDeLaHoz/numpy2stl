@@ -32,6 +32,7 @@ boolean = ["pymeshlab>=2022.2", "manifold3d>=2.4"]
 geo = ["rasterio>=1.3", "h5py>=3.7"]
 mesh = ["trimesh>=3.9"]
 registration = [
+    "matplotlib>=3.5",   # registration reports
     "osmnx>=2.0",
     "geopandas>=1.0",
     "rasterio>=1.3",
@@ -60,3 +61,22 @@ markers = [
     "requires_scipy: needs scipy installed",
     "requires_opencv: needs opencv-python installed",
 ]
+
+# Same rules as strm2stl/ruff.toml, so both repos enforce one standard.
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = [
+    "E501",  # line length: handled by the formatter, not the linter
+    "B008",  # function calls in argument defaults
+    "B006",  # mutable default arguments
+    "UP007", # keep Optional[] where it reads more clearly
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F811"]  # fixture overrides
+# Operator scripts: correctness rules still apply, style-only rules do not.
+"src/numpy2stl/registration/scripts/*" = ["E701", "E702", "E731", "E741", "UP031", "B904", "B905"]

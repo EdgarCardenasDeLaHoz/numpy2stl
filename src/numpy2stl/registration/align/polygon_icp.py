@@ -45,7 +45,7 @@ def _densify(poly: np.ndarray, step: float = 2.0) -> np.ndarray:
         return p
     loop = np.vstack([p, p[:1]])
     out = []
-    for a, b in zip(loop[:-1], loop[1:]):
+    for a, b in zip(loop[:-1], loop[1:], strict=True):
         d = float(np.hypot(*(b - a)))
         n = max(1, int(d / step))
         ts = np.linspace(0.0, 1.0, n, endpoint=False)
@@ -78,7 +78,8 @@ def _match_buildings(stl_polys, osm_polys, max_dist):
             break
         if si in used_stl or oi in used_osm:
             continue
-        used_stl.add(si); used_osm.add(oi)
+        used_stl.add(si)
+        used_osm.add(oi)
         pairs.append((int(si), int(oi)))
     return pairs
 
@@ -110,11 +111,14 @@ def refine_registration_polygons(
            "n_matched": 0, "rmse_before": float("nan"), "rmse_after": float("nan"),
            "reason": ""}
     if not HAS_CV2:
-        out["reason"] = "opencv unavailable"; return out
+        out["reason"] = "opencv unavailable"
+        return out
     if dice is None or dice <= min_dice:
-        out["reason"] = f"dice {dice} <= {min_dice}; skipped"; return out
+        out["reason"] = f"dice {dice} <= {min_dice}; skipped"
+        return out
     if not stl_polys or not osm_polys:
-        out["reason"] = "no polygons"; return out
+        out["reason"] = "no polygons"
+        return out
 
     M = np.asarray(transform, dtype=np.float64).copy()
 
@@ -124,7 +128,8 @@ def refine_registration_polygons(
     pairs = _match_buildings(stl_w, osm_polys, max_dist=match_dist_px)
     out["n_matched"] = len(pairs)
     if len(pairs) < 3:
-        out["reason"] = f"only {len(pairs)} building matches (<3)"; return out
+        out["reason"] = f"only {len(pairs)} building matches (<3)"
+        return out
 
     # Build dense correspondence clouds from matched polygon boundaries.
     src = np.vstack([_densify(stl_w[si]) for si, _ in pairs])     # warped STL pts
@@ -135,7 +140,8 @@ def refine_registration_polygons(
         from scipy.spatial import cKDTree
         tree = cKDTree(tgt_all)
     except Exception:
-        out["reason"] = "scipy KDTree unavailable"; return out
+        out["reason"] = "scipy KDTree unavailable"
+        return out
 
     def _rmse(pts):
         dist, _ = tree.query(pts)
@@ -178,6 +184,6 @@ def refine_registration_polygons(
 
 def _compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
     """2×3 affine for x → outer(inner(x))."""
-    O = np.vstack([outer, [0, 0, 1]])
-    I = np.vstack([inner, [0, 0, 1]])
-    return (O @ I)[:2].astype(np.float64)
+    outer_h = np.vstack([outer, [0, 0, 1]])
+    inner_h = np.vstack([inner, [0, 0, 1]])
+    return (outer_h @ inner_h)[:2].astype(np.float64)

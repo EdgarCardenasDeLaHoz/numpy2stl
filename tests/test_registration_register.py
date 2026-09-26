@@ -52,8 +52,9 @@ class TestRegister:
         recovered transform should map a centre point onto itself within a few
         percent of the image size.
         """
-        from numpy2stl.registration.align import register
         import numpy as np
+
+        from numpy2stl.registration.align import register
         rng = np.random.RandomState(0)
         # 128px city-like GRID of buildings: blocks on a lattice with street
         # gaps, giving a dominant axis-aligned orientation (what the line-angle
@@ -76,7 +77,8 @@ class TestRegister:
             for gc in range(10, 116, 20):
                 jr = gr + rng.randint(-3, 4)
                 jc = gc + rng.randint(-3, 4)
-                sh = rng.randint(12, 16); sw = rng.randint(12, 16)
+                sh = rng.randint(12, 16)
+                sw = rng.randint(12, 16)
                 arr[jr:jr + sh, jc:jc + sw] = rng.uniform(10, 40)
         result = register(arr, arr)
         M = result["transform"][:2, :3].astype(float)
@@ -99,7 +101,7 @@ class TestRegister:
         M_known = np.float32([[1, 0, 5], [0, 1, 4]])
         shifted = cv2.warpAffine(arr.astype(np.float32), M_known, (64, 64))
 
-        from numpy2stl.registration.align import register, apply_transform
+        from numpy2stl.registration.align import apply_transform, register
         # register() now delegates to the global edge-IoU search (register_global).
         result = register(shifted.astype(np.float64), arr)
         M_found = result["transform"]

@@ -19,7 +19,7 @@ except ImportError:
     HAS_CV2 = False
 
 try:
-    from scipy.ndimage import sobel, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel
     HAS_SCIPY = True
 except ImportError:
     sobel = gaussian_filter = None

@@ -46,8 +46,7 @@ class TestRescale:
         scaled = rescale(im, max_size=200, height=20, base=10, clip=[10, 90])
 
         # Clipping should reduce outliers
-        original_range = np.ptp(im)
-        scaled_range = np.ptp((scaled - 10))
+        scaled_range = np.ptp(scaled - 10)
 
         # Scaled range should be close to height (20)
         assert 15 <= scaled_range <= 25

@@ -15,7 +15,6 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
     from matplotlib.patches import Patch
     HAS_MPL = True
 except ImportError:
@@ -76,7 +75,8 @@ def render_corrected_difference_png(out_path: str | Path, report) -> Path | None
     fig.colorbar(im, ax=axes[0], label="STL − OSM (m)", fraction=0.046, pad=0.04)
     axes[0].set_title(f"Corrected per-building difference  ({n_buildings} buildings)\n"
                       f"fills + fit-outliers excluded", fontsize=11)
-    axes[0].set_xlabel("col"); axes[0].set_ylabel("row")
+    axes[0].set_xlabel("col")
+    axes[0].set_ylabel("row")
 
     axes[1].hist(vals, bins=40, color="#3a7ebf", alpha=0.85, edgecolor="none")
     axes[1].axvline(0, color="k", ls="--", lw=1.2)

@@ -22,7 +22,8 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
     runs `register_polygons` with scale pinned to the geometric anchor.  Returns
     None (→ caller falls back to raster) when the match confidence is low.
     """
-    from ..align import (register_polygons, vectorize_buildings, building_mask)
+    from ..align import building_mask, register_polygons, vectorize_buildings
+
     # STL segmentation routes through the mask-producer seam (identical to
     # building_mask when no producer is installed); the OSM call below stays
     # classic because that mask is rasterized ground truth.
@@ -31,12 +32,16 @@ def _polygon_register_dict(stl_reg, osm_reg, known_scale, prism_polys, bx, by, c
     h, w = osm_reg.shape
 
     if prism_polys:                              # map [0,1] fractions → iso pixels
-        xe = float(bx[1] - bx[0]); ye = float(by[1] - by[0])
+        xe = float(bx[1] - bx[0])
+        ye = float(by[1] - by[0])
         if xe >= ye:
-            cols = _RR; rows = max(1, int(round(_RR * ye / xe)))
+            cols = _RR
+            rows = max(1, int(round(_RR * ye / xe)))
         else:
-            rows = _RR; cols = max(1, int(round(_RR * xe / ye)))
-        c0 = (_RR - cols) // 2; r0 = (_RR - rows) // 2
+            rows = _RR
+            cols = max(1, int(round(_RR * xe / ye)))
+        c0 = (_RR - cols) // 2
+        r0 = (_RR - rows) // 2
         stl_polys = [np.column_stack([c0 + p[:, 0] * cols, r0 + p[:, 1] * rows]) for p in prism_polys]
     else:
         stl_polys = vectorize_buildings(
@@ -75,12 +80,16 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
     if prism_polys:
         try:
             from ..config import REGISTER_RES as _RR
-            xe = float(bx[1] - bx[0]); ye = float(by[1] - by[0])
+            xe = float(bx[1] - bx[0])
+            ye = float(by[1] - by[0])
             if xe >= ye:
-                _cols = _RR; _rows = max(1, int(round(_RR * ye / xe)))
+                _cols = _RR
+                _rows = max(1, int(round(_RR * ye / xe)))
             else:
-                _rows = _RR; _cols = max(1, int(round(_RR * xe / ye)))
-            _c0 = (_RR - _cols) // 2; _r0 = (_RR - _rows) // 2
+                _rows = _RR
+                _cols = max(1, int(round(_RR * xe / ye)))
+            _c0 = (_RR - _cols) // 2
+            _r0 = (_RR - _rows) // 2
             import cv2 as _cv2
             _reg_src_mask = np.zeros((_RR, _RR), dtype=np.uint8)
             for pf in prism_polys:
@@ -142,7 +151,8 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
             mag = (p * p + q * q) ** 0.5
             if mag > 1e-9:
                 f = keep_scale / mag
-                p *= f; q *= f
+                p *= f
+                q *= f
         S = M.copy()
         S[0, 0], S[0, 1] = p, -q
         S[1, 0], S[1, 1] = q, p
@@ -151,7 +161,8 @@ def _run_registration(stl_reg, osm_reg, *, prism_polys, bx, by, cell_size_m_reg,
     import math as _m
     _peak_scale = _m.hypot(transform[0, 0], transform[1, 0])  # scale before ECC
     _pre_rot = _m.degrees(_m.atan2(transform[1, 0], transform[0, 0]))  # rotation before ECC
-    from ..align import refine_transform as _refine_ecc, score_alignment as _score_align
+    from ..align import refine_transform as _refine_ecc
+    from ..align import score_alignment as _score_align
     # allow_forced_split=False throughout this accept/reject check: it must
     # score the same mask structure the search was tuned against, not the
     # report-quality segmentation (see building_mask()'s allow_forced_split

@@ -1,7 +1,8 @@
 # Tests for generate.py - Core mesh generation functions
 import numpy as np
 import pytest
-from numpy2stl import array_to_mesh, array2faces, perimeter_to_walls
+
+from numpy2stl import array2faces, array_to_mesh, perimeter_to_walls
 
 
 class TestArrayToMesh:

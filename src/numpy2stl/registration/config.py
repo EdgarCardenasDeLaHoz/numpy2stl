@@ -12,8 +12,8 @@ module-level constants below, so nothing has to thread the whole object.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 # --- Geometry / fetch ------------------------------------------------------
 # OSM frame is fetched at this multiple of the STL footprint.  Larger frames

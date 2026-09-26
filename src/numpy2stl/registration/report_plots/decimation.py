@@ -17,6 +17,8 @@ from pathlib import Path
 
 import numpy as np
 
+from ._common import render_three_panel
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -27,8 +29,6 @@ try:
 except ImportError:  # pragma: no cover
     plt = None
     HAS_MPL = False
-
-from ._common import render_three_panel
 
 
 def render_decimation_png(out_path, report) -> Path | None:
@@ -42,8 +42,10 @@ def render_decimation_png(out_path, report) -> Path | None:
     m_per_unit = float(stats.get("m_per_unit", 1.0) or 1.0)
     diff_m = (simp.astype(np.float64) - orig.astype(np.float64)) * m_per_unit
 
-    f0 = stats.get("orig_faces"); f1 = stats.get("simplified_faces")
-    haus_m = stats.get("hausdorff_m"); budget = stats.get("deviation_tol_m_metres")
+    f0 = stats.get("orig_faces")
+    f1 = stats.get("simplified_faces")
+    haus_m = stats.get("hausdorff_m")
+    budget = stats.get("deviation_tol_m_metres")
     parts = []
     if f0 and f1:
         parts.append(f"faces {f0:,} → {f1:,} ({100.0 * f1 / f0:.0f}%)")
@@ -73,7 +75,8 @@ def render_decimation_curve_png(out_path, report) -> Path | None:
 
     fig, ax = plt.subplots(figsize=(7, 5))
     ax.plot(kept, dev, "o-", color="#3a7ebf", lw=2, label="achievable deviation")
-    ax.set_xlabel("faces kept (%)"); ax.set_ylabel("max surface deviation (m)")
+    ax.set_xlabel("faces kept (%)")
+    ax.set_ylabel("max surface deviation (m)")
     ax.set_title("Decimation trade-off: surface deviation vs faces kept", fontsize=11)
     ax.grid(alpha=0.3)
 

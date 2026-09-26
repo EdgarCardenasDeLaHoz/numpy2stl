@@ -98,7 +98,7 @@ def compare(
             if have_buildings and inl is not None and inl.size == agg_osm.size:
                 n_outliers = int((~inl).sum())
                 agg_stl_raw, agg_osm = agg_stl_raw[inl], agg_osm[inl]
-                _bids = [b for b, keep in zip(_bids, inl) if keep]
+                _bids = [b for b, keep in zip(_bids, inl, strict=False) if keep]
                 have_buildings = agg_osm.size >= 2
             logger.info("Auto height fit (%s): scale=%.4f offset=%+.2f m "
                         "(trimmed %d outliers)", fit_src, height_scale,
@@ -232,7 +232,8 @@ def compare(
         osm_fp = osm_fp & _crop
     inter = int((stl_fp & osm_fp).sum())
     union = int((stl_fp | osm_fp).sum())
-    n_stl_fp = int(stl_fp.sum()); n_osm_fp = int(osm_fp.sum())
+    n_stl_fp = int(stl_fp.sum())
+    n_osm_fp = int(osm_fp.sum())
     footprint_iou = inter / union if union > 0 else 0.0
     dice = (2.0 * inter) / (n_stl_fp + n_osm_fp) if (n_stl_fp + n_osm_fp) > 0 else 0.0
 

@@ -49,7 +49,7 @@ def main(argv=None):
     args = p.parse_args(argv)
 
     from numpy2stl.registration import register_city_stl
-    from numpy2stl.registration.align import register, apply_transform, _decompose_matrix
+    from numpy2stl.registration.align import _decompose_matrix, apply_transform, register
 
     region = args.region
     parts = region.split(",")

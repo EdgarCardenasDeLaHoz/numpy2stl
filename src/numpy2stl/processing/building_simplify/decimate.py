@@ -8,10 +8,9 @@ from typing import NamedTuple
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
-
 from ._io import _save_mesh, _save_prism_lod
+
+logger = logging.getLogger(__name__)
 
 
 class SimplifyStats(NamedTuple):
@@ -170,6 +169,7 @@ def simplify_building_mesh(
     """
     try:
         import trimesh  # noqa: F401
+
         from ...io.readers import _load_trimesh_mesh
     except Exception:
         logger.warning("simplify_building_mesh: trimesh unavailable; returning original mesh.")

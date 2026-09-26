@@ -100,8 +100,7 @@ class TestProducerIsUsed:
 
     def test_osm_bypasses_producer(self, osm_like):
         """OSM masks are ground truth (~isnan of rasterized footprints)."""
-        from numpy2stl.registration.align import (building_mask, produce_mask,
-                                                  use_mask_producer)
+        from numpy2stl.registration.align import building_mask, produce_mask, use_mask_producer
         called = []
 
         def producer(hm, source="stl", **kwargs):
@@ -114,8 +113,7 @@ class TestProducerIsUsed:
         assert np.array_equal(out, building_mask(osm_like, source="osm"))
 
     def test_scope_is_restored(self, stl_like):
-        from numpy2stl.registration.align import (active_mask_producer,
-                                                  use_mask_producer)
+        from numpy2stl.registration.align import active_mask_producer, use_mask_producer
         producer = lambda hm, source="stl", **kw: np.zeros(hm.shape, bool)  # noqa: E731
         with use_mask_producer(producer):
             assert active_mask_producer() is producer
@@ -125,8 +123,7 @@ class TestProducerIsUsed:
         assert active_mask_producer() is None
 
     def test_scope_restored_on_exception(self):
-        from numpy2stl.registration.align import (active_mask_producer,
-                                                  use_mask_producer)
+        from numpy2stl.registration.align import active_mask_producer, use_mask_producer
         with pytest.raises(RuntimeError):
             with use_mask_producer(lambda hm, source="stl", **kw: None):
                 raise RuntimeError("boom")
@@ -160,8 +157,7 @@ class TestSeamIsWiredIntoThePipeline:
     """The claim a unit test of mask_source.py alone cannot make."""
 
     def test_register_global_reaches_the_producer(self, stl_like, osm_like):
-        from numpy2stl.registration.align import (building_mask, register_global,
-                                                  use_mask_producer)
+        from numpy2stl.registration.align import building_mask, register_global, use_mask_producer
         seen = {"n": 0}
 
         def passthrough(hm, source="stl", **kwargs):
@@ -175,8 +171,7 @@ class TestSeamIsWiredIntoThePipeline:
     def test_passthrough_producer_gives_identical_transform(self, stl_like, osm_like):
         """A producer that IS building_mask must change nothing — this is the
         regression guard on the routing edits themselves."""
-        from numpy2stl.registration.align import (building_mask, register_global,
-                                                  use_mask_producer)
+        from numpy2stl.registration.align import building_mask, register_global, use_mask_producer
         classic = register_global(stl_like, osm_like, cell_size_m=3.0)
         with use_mask_producer(
                 lambda hm, source="stl", **kw: building_mask(hm, source=source, **kw)):

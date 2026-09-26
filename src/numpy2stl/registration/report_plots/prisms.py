@@ -13,9 +13,9 @@ from pathlib import Path
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
 from ._common import render_three_panel
+
+logger = logging.getLogger(__name__)
 
 
 def render_prism_decomposition_png(out_path, report) -> Path | None:
@@ -32,7 +32,8 @@ def render_prism_decomposition_png(out_path, report) -> Path | None:
     # absolute z (includes the base plate).  Normalise each to its own ground level
     # (low percentile) before differencing so the constant base offset doesn't
     # swamp the real shape difference.
-    o = orig.astype(np.float64); p = prism.astype(np.float64)
+    o = orig.astype(np.float64)
+    p = prism.astype(np.float64)
     o0 = float(np.nanpercentile(o, 2)) if np.isfinite(o).any() else 0.0
     p0 = float(np.nanpercentile(p, 2)) if np.isfinite(p).any() else 0.0
     diff_m = ((p - p0) - (o - o0)) * mpu

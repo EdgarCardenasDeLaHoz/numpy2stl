@@ -51,8 +51,8 @@ def make_puzzle_pts(width, b, m, base_n, a=0, border_buffer=None, tol=0.4):
     b = (bx, by)
 
     pts_list = []
-    for ni, i in enumerate(grid_range_x):
-        for nj, j in enumerate(grid_range_y):
+    for ni, _ in enumerate(grid_range_x):
+        for nj, _ in enumerate(grid_range_y):
             temp = make_puzzle_piece(
                 b, m, ni, nj, base_n, len(grid_range_x), len(grid_range_y), a=a, tol=tol
             )

@@ -112,11 +112,11 @@ def decimate_mesh(
             result = ms.current_mesh()
             verts = result.vertex_matrix().astype(np.float64)
             faces = result.face_matrix().astype(np.int64)
-        except ImportError:
+        except ImportError as err:
             raise ImportError(
                 "decimate_mesh requires either 'fast_simplification' or 'pymeshlab'. "
                 "Install with: pip install fast-simplification  OR  pip install pymeshlab"
-            )
+            ) from err
         except Exception as e:
             raise RuntimeError(f"Decimation failed: {e}") from e
 

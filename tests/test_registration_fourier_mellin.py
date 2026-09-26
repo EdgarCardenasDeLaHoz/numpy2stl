@@ -1,14 +1,12 @@
 # Registration tests — fourier_mellin (split from test_registration.py, B6).
 # Tests for the registration pipeline
 # No-network unit tests run always; integration tests require osmnx + a real STL.
+import importlib.util
+
 import numpy as np
 import pytest
 
-try:
-    import cv2
-    HAS_CV2 = True
-except ImportError:
-    HAS_CV2 = False
+HAS_CV2 = importlib.util.find_spec("cv2") is not None
 
 try:
     import osmnx  # noqa: F401
@@ -82,6 +80,7 @@ class TestFourierMellin:
         overlap), is still inverted to near-identity — overlap alone is not a
         blocker when the visible content matches."""
         import cv2
+
         from numpy2stl.registration.align import fourier_mellin_register
         base = self._city(grid=grid, seed=1)
         h, w = base.shape

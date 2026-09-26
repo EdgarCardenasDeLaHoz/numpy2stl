@@ -51,9 +51,12 @@ def _dice(a, b):
 
 def _building_with_clutter():
     """30 m tower + a 2 m roof bump (< budget) + a 12 m spire (> budget)."""
-    box = trimesh.creation.box(extents=(10, 10, 30)); box.apply_translation([0, 0, 15])
-    bump = trimesh.creation.box(extents=(3, 3, 2)); bump.apply_translation([0, 0, 31])
-    spire = trimesh.creation.box(extents=(1, 1, 12)); spire.apply_translation([3, 3, 36])
+    box = trimesh.creation.box(extents=(10, 10, 30))
+    box.apply_translation([0, 0, 15])
+    bump = trimesh.creation.box(extents=(3, 3, 2))
+    bump.apply_translation([0, 0, 31])
+    spire = trimesh.creation.box(extents=(1, 1, 12))
+    spire.apply_translation([3, 3, 36])
     return trimesh.util.concatenate([box, bump, spire]).subdivide().subdivide()
 
 
@@ -96,7 +99,8 @@ class TestDecimateToTolerance:
             assert d["hausdorff_units"] <= diag
             assert abs(d["hausdorff_m"] - d["hausdorff_units"] * 2.0) < 1e-6
         # keeping more faces → lower-or-equal deviation
-        ratios = [d["ratio"] for d in sweep]; devs = [d["hausdorff_units"] for d in sweep]
+        ratios = [d["ratio"] for d in sweep]
+        devs = [d["hausdorff_units"] for d in sweep]
         assert ratios == sorted(ratios)
         assert devs[-1] <= devs[0] + 1e-6
 
@@ -111,7 +115,8 @@ class TestFlattenRoofClutter:
         from numpy2stl.processing.building_simplify import flatten_roof_clutter
         hm = np.zeros((40, 40))
         # building A: flat-ish roof at 20 with a 2 m bump (spread < 3.5) → flatten
-        hm[5:15, 5:15] = 20.0; hm[8:11, 8:11] = 22.0
+        hm[5:15, 5:15] = 20.0
+        hm[8:11, 8:11] = 22.0
         # building B: stepped 10..30 (spread 20 > 3.5) → keep
         hm[25:35, 25:35] = np.linspace(10, 30, 10)[None, :]
         labels = np.zeros((40, 40), int)
@@ -131,10 +136,13 @@ class TestFlattenRoofClutter:
 class TestSegmentationImprovements:
 
     def test_watershed_splits_touching(self):
-        from numpy2stl.registration.align import split_touching_buildings
         import scipy.ndimage as ndi
+
+        from numpy2stl.registration.align import split_touching_buildings
         m = np.zeros((80, 80), bool)
-        m[20:40, 15:35] = True; m[20:40, 45:65] = True; m[28:32, 35:45] = True
+        m[20:40, 15:35] = True
+        m[20:40, 45:65] = True
+        m[28:32, 35:45] = True
         assert ndi.label(m)[1] == 1
         out = split_touching_buildings(m, cell_size_m=1.0, min_separation_m=12)
         assert ndi.label(out)[1] == 2
@@ -178,9 +186,12 @@ class TestPolygonICP:
 
     def test_recovers_known_misalignment(self):
         import cv2
+
         from numpy2stl.registration.align import refine_registration_polygons
         osm = self._grid_polys()
-        M = cv2.getRotationMatrix2D((100, 100), 1.5, 1.02); M[0, 2] += 3; M[1, 2] += -2
+        M = cv2.getRotationMatrix2D((100, 100), 1.5, 1.02)
+        M[0, 2] += 3
+        M[1, 2] += -2
         stl = [p @ M[:, :2].T + M[:, 2] for p in osm]   # residual error baked in
         res = refine_registration_polygons(stl, osm, np.eye(2, 3, dtype=float), dice=0.99)
         assert res["applied"]
@@ -219,8 +230,10 @@ class TestPrismDecompose:
     def test_stacked_layers_and_save(self, tmp_path):
         from numpy2stl.processing.building_simplify import prism_decompose
         # podium (40x40x10) + tower (15x15x40) → a multi-layer wedding cake
-        podium = trimesh.creation.box(extents=(40, 40, 10)); podium.apply_translation([0, 0, 5])
-        tower = trimesh.creation.box(extents=(15, 15, 40)); tower.apply_translation([0, 0, 30])
+        podium = trimesh.creation.box(extents=(40, 40, 10))
+        podium.apply_translation([0, 0, 5])
+        tower = trimesh.creation.box(extents=(15, 15, 40))
+        tower.apply_translation([0, 0, 30])
         stl = tmp_path / "step.stl"
         trimesh.util.concatenate([podium, tower]).export(str(stl))
         out = tmp_path / "prism.stl"

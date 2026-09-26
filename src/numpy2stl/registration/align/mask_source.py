@@ -32,7 +32,8 @@ from __future__ import annotations
 
 import contextlib
 import threading
-from typing import Any, Callable, Iterator
+from collections.abc import Callable, Iterator
+from typing import Any
 
 import numpy as np
 

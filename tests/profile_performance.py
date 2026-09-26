@@ -2,7 +2,9 @@
 import cProfile
 import pstats
 from io import StringIO
+
 import numpy as np
+
 from numpy2stl import array_to_mesh
 
 

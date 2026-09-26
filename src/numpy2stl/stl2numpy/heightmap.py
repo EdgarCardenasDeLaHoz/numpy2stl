@@ -9,9 +9,8 @@ from pathlib import Path
 
 import numpy as np
 
-from ..io.readers import _load_trimesh_mesh
-
 from .._paths import CACHE_ROOT
+from ..io.readers import _load_trimesh_mesh
 
 logger = logging.getLogger(__name__)
 
@@ -80,13 +79,13 @@ def mesh_to_heightmap(
     """
     try:
         import trimesh
-    except ImportError:
-        raise ImportError("trimesh is required. Install with: pip install trimesh")
+    except ImportError as err:
+        raise ImportError("trimesh is required. Install with: pip install trimesh") from err
 
     try:
         from scipy.stats import binned_statistic_2d
-    except ImportError:
-        raise ImportError("scipy is required. Install with: pip install scipy")
+    except ImportError as err:
+        raise ImportError("scipy is required. Install with: pip install scipy") from err
 
     # Cache check — the 3MF/STL load + surface sampling is the slow step.
     cache_path = _stl_cache_path(file_path, resolution, projection, z_axis, allow_large,

@@ -14,14 +14,6 @@ Submodules with heavier dependencies are imported explicitly::
 
 import logging
 
-logging.getLogger(__name__).addHandler(logging.NullHandler())
-
-
-def get_logger():
-    """Get the package logger. Users can configure as needed."""
-    return logging.getLogger(__name__)
-
-
 # Core generation functions
 from .core.generate import (
     array2faces,
@@ -39,13 +31,6 @@ from .core.polygon import (
     triangulate_polygon,
 )
 
-# Save/export functions
-from .io.writers import (
-    write3MF,
-    writeOBJ,
-    writeSTL,
-)
-
 # Solid class and utilities
 from .core.solid import (
     Solid,
@@ -58,11 +43,25 @@ from .core.solid import (
     vertices_to_index,
 )
 
+# Save/export functions
+from .io.writers import (
+    write3MF,
+    writeOBJ,
+    writeSTL,
+)
+
 # Tools functions
 from .utils.image import (
     rescale,
     resize_max,
 )
+
+logging.getLogger(__name__).addHandler(logging.NullHandler())
+
+
+def get_logger():
+    """Get the package logger. Users can configure as needed."""
+    return logging.getLogger(__name__)
 
 __all__ = [
     # Core mesh generation

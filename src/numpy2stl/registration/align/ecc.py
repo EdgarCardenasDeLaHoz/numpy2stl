@@ -8,6 +8,10 @@ import logging
 
 import numpy as np
 
+from .metrics import _mask_sdf, _tolerant_iou
+from .segmentation import building_edges, building_mask
+from .transform import _preprocess_for_registration, apply_transform
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -18,15 +22,12 @@ except ImportError:
     HAS_CV2 = False
 
 try:
-    from scipy.ndimage import sobel, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel
     HAS_SCIPY = True
 except ImportError:
     sobel = gaussian_filter = None
     HAS_SCIPY = False
 
-from .metrics import _mask_sdf, _tolerant_iou
-from .segmentation import building_edges, building_mask
-from .transform import _preprocess_for_registration, apply_transform
 
 def refine_transform(
     source: np.ndarray,

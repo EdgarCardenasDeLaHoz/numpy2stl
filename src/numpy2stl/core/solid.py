@@ -177,7 +177,7 @@ def normal_to_dict(normals, decimals=3):
     split_indices = np.cumsum(counts)[:-1]
     groups = np.split(idx_sort, split_indices)
 
-    return {tuple(norm): group.tolist() for norm, group in zip(unique_norms, groups)}
+    return {tuple(norm): group.tolist() for norm, group in zip(unique_norms, groups, strict=True)}
 
 
 def contiguous_edges(edge_idx, idx_list):
@@ -330,7 +330,7 @@ def validate_object(solid):
 
     normals = np.cross(triangles[:, 1] - triangles[:, 0], triangles[:, 2] - triangles[:, 0])
     invalid = (normals == 0).all(axis=1)
-    triangles = triangles[invalid == False]
+    triangles = triangles[~invalid]
 
     if np.sum(invalid) > 0:
         print("invalid faces exist in object!!")
@@ -343,7 +343,7 @@ def validate_object(solid):
         print(list(vertices[open_edges]))
         print("Open edges exist in object!!")
 
-    if (is_valid) == False:
+    if not is_valid:
         print("Solid is not valid")
 
 

@@ -5,8 +5,11 @@ Split (B5) into decimate / prism / _io submodules; the public API below keeps
 helpers are imported from their defining submodule.
 """
 from .decimate import (
-    SimplifyStats, decimate_to_tolerance, decimation_sweep,
-    flatten_roof_clutter, simplify_building_mesh,
+    SimplifyStats,
+    decimate_to_tolerance,
+    decimation_sweep,
+    flatten_roof_clutter,
+    simplify_building_mesh,
 )
 from .prism import PrismStats, prism_decompose
 

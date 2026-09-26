@@ -41,10 +41,10 @@ def _save_mesh(mesh, save_path: str | Path) -> None:
 def _save_prism_lod(mesh, z_axis: int, save_path: Path, deviation_tol_m: float) -> None:
     """Aggressive blocky LOD: detect footprints on the (simplified) heightmap and
     re-extrude each as a flat-top prism at its plateau height."""
-    from ...stl2numpy.heightmap import _load_trimesh_mesh  # noqa: F401
-    from ...registration.align.segmentation import building_mask, vectorize_buildings
-    from ..extrusion import make_prism_solid
     from ...io.writers import write3MF
+    from ...registration.align.segmentation import building_mask, vectorize_buildings
+    from ...stl2numpy.heightmap import _load_trimesh_mesh  # noqa: F401
+    from ..extrusion import make_prism_solid
 
     # Rasterise the in-memory simplified mesh to a heightmap.
     hm, cell = _rasterize_mesh(mesh, z_axis=z_axis, resolution=512)

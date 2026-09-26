@@ -9,6 +9,11 @@ import time
 
 import numpy as np
 
+from .lines import gradient_angle_histogram, rotation_from_angle_histograms
+from .mask_source import produce_edges
+from .metrics import _dice, _tolerant_iou
+from .segmentation import building_edges
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -19,7 +24,7 @@ except ImportError:
     HAS_CV2 = False
 
 try:
-    from scipy.ndimage import sobel, gaussian_filter
+    from scipy.ndimage import gaussian_filter, sobel
     HAS_SCIPY = True
 except ImportError:
     sobel = gaussian_filter = None
@@ -29,10 +34,6 @@ except ImportError:
 _ROT_IOU_WINDOW = 20.0   # ± window (deg) around the gradient estimate; stays in the 90° quadrant
 _ROT_IOU_MARGIN = 0.02   # min edge-IoU gain to override the histogram rotation
 
-from .lines import gradient_angle_histogram, rotation_from_angle_histograms
-from .metrics import _dice, _tolerant_iou
-from .mask_source import produce_edges
-from .segmentation import building_edges
 
 def register_global(
     source: np.ndarray,
@@ -359,7 +360,6 @@ def register_global(
     else:
         cand_rots = [_norm180(base_rot + k * 90.0) for k in (0, 1, 2, 3)]
 
-    scale_best_sc: dict[float, float] = {round(sc0, 4): 0.0}
     rot_best_sc:   dict[float, float] = {}
     scored = []
     for rc in cand_rots:

@@ -1,6 +1,7 @@
 # Tests for polygon.py - Polygon utilities
 import numpy as np
-from numpy2stl import get_ordered_perimeter, triangulate_polygon, rotate_3D
+
+from numpy2stl import get_ordered_perimeter, rotate_3D, triangulate_polygon
 
 
 class TestGetOrderedPerimeter:

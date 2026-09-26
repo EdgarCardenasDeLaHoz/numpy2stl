@@ -57,7 +57,7 @@ def _find_ept_url(N, S, E, W):
     """Best-effort lookup of a 3DEP EPT resource covering the bbox centre."""
     try:
         import requests
-        from shapely.geometry import shape, Point
+        from shapely.geometry import Point, shape
         gj = requests.get(_USGS_EPT_RESOURCES, timeout=30).json()
         c = Point((E + W) / 2.0, (N + S) / 2.0)
         for feat in gj.get("features", []):
@@ -95,6 +95,7 @@ def get_ndsm(bbox, resolution: int = 512, cache: bool = True, ept_url: str | Non
         return None
 
     import json
+
     import pdal
     import py3dep
 

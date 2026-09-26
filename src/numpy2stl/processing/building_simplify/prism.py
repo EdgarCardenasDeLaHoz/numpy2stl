@@ -8,10 +8,9 @@ from typing import NamedTuple
 
 import numpy as np
 
-logger = logging.getLogger(__name__)
-
-
 from ._io import _save_prism_models
+
+logger = logging.getLogger(__name__)
 
 
 class PrismStats(NamedTuple):
@@ -56,16 +55,16 @@ def prism_decompose(
     set), saved to ``save_path`` (STL = merged, 3MF = soup) when given.
     """
     import trimesh
+
+    from ...registration.align import building_mask, terrain_residual, vectorize_buildings
     from ...stl2numpy.heightmap import mesh_to_heightmap
-    from ...registration.align import (building_mask, vectorize_buildings,
-                                       terrain_residual)
     from ..extrusion import make_sloped_prism_solid
 
     # Non-isotropic render → simple pixel↔world mapping (no NaN padding).
     r = mesh_to_heightmap(file_path, resolution=resolution, projection="max",
                           z_axis=z_axis, isotropic=False, cache=False)
     hm = r["heightmap"]
-    (x_min, x_max), (y_min, y_max) = r["bounds"]["x"], r["bounds"]["y"]
+    (x_min, _x_max), (y_min, _y_max) = r["bounds"]["x"], r["bounds"]["y"]
     cell_x, cell_y = r["cell_size"]
     cell_m = 0.5 * (abs(cell_x) + abs(cell_y)) * m_per_unit
 
@@ -139,8 +138,6 @@ def prism_decompose(
                     if rms <= step:
                         plane = (a, b, c)
             # Record this layer's contribution to the prism surface (max-projection).
-            cap = z_hi if plane is None else None
-            sub_pix = sub if cap is not None else None
             for poly_px in polys:
                 world = _px_to_world(poly_px.astype(np.float64))
                 try:

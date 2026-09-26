@@ -15,8 +15,6 @@ try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
-    from matplotlib.patches import Patch
     HAS_MPL = True
 except ImportError:
     plt = None
@@ -143,7 +141,7 @@ def render_scale_sweep_png(
 
 def render_xcorr_map_png(
     out_path: str | Path,
-    xcorr_map: "np.ndarray | None",
+    xcorr_map: np.ndarray | None,
     best_dx: float,
     best_dy: float,
 ) -> Path | None:
@@ -190,9 +188,9 @@ def render_xcorr_map_png(
 
 def render_angle_histogram_png(
     out_path: str | Path,
-    hist_src: "np.ndarray",
-    hist_tgt: "np.ndarray",
-    hist_xcorr: "np.ndarray",
+    hist_src: np.ndarray,
+    hist_tgt: np.ndarray,
+    hist_xcorr: np.ndarray,
     hist_rot_deg: float,
     found_rot: float | None = None,
 ) -> Path | None:
@@ -287,9 +285,9 @@ def render_rot_sweep_png(
     rot_sweep: list[tuple[float, float]],
     found_rot: float | None = None,
     hist_rot_deg: float | None = None,
-    rot_l1_xcorr: "dict[float, float] | None" = None,
-    rot_l2_xcorr: "dict[float, float] | None" = None,
-    dice_fine: "dict[float, float] | None" = None,
+    rot_l1_xcorr: dict[float, float] | None = None,
+    rot_l2_xcorr: dict[float, float] | None = None,
+    dice_fine: dict[float, float] | None = None,
 ) -> Path | None:
     """All rotation sweeps in one two-panel figure.
 

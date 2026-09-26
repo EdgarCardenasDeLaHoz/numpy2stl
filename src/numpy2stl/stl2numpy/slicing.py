@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import logging
 
 import numpy as np
@@ -39,9 +40,7 @@ def slice_mesh(
         'polygons'  : list of (N, 2) ndarray  closed 2D contours (may be empty)
         'section'   : trimesh Path3D or None  raw trimesh section object
     """
-    try:
-        import trimesh
-    except ImportError:
+    if importlib.util.find_spec("trimesh") is None:
         raise ImportError("trimesh is required. Install with: pip install trimesh")
 
     mesh = _load_trimesh_mesh(file_path)
@@ -165,7 +164,6 @@ def _scanline_fill(
         row = ((poly_pts[:, 1] - y_min) / (y_max - y_min) * (resolution - 1)).astype(int)
         # Bounding-box scan
         r_min, r_max = row.min(), row.max()
-        c_min, c_max = col.min(), col.max()
         for r in range(max(r_min, 0), min(r_max + 1, resolution)):
             intersections = []
             n = len(row)

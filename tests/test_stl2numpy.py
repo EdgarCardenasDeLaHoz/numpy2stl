@@ -4,7 +4,6 @@ import pytest
 
 from numpy2stl import array_to_mesh, triangles_to_facets, writeSTL
 
-
 # ---------------------------------------------------------------------------
 # Fixtures — build synthetic STL files from numpy2stl itself
 # ---------------------------------------------------------------------------
@@ -246,7 +245,7 @@ class TestMeshToPointcloud:
         assert pts.shape == (500, 6)
 
     def test_vertices_method_returns_all_vertices(self, pyramid_stl):
-        from numpy2stl.stl2numpy import mesh_to_pointcloud, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, mesh_to_pointcloud
         props = get_mesh_properties(pyramid_stl)
         pts = mesh_to_pointcloud(pyramid_stl, method="vertices")
         assert pts.shape[0] == props["num_vertices"]
@@ -258,7 +257,7 @@ class TestMeshToPointcloud:
         assert pts.dtype == np.float64
 
     def test_points_within_mesh_bounds(self, pyramid_stl):
-        from numpy2stl.stl2numpy import mesh_to_pointcloud, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, mesh_to_pointcloud
         pts = mesh_to_pointcloud(pyramid_stl, n_points=1000)
         props = get_mesh_properties(pyramid_stl)
         for i, axis in enumerate(("x", "y", "z")):
@@ -288,7 +287,7 @@ class TestSliceMesh:
             assert "section" in s
 
     def test_explicit_z_levels(self, pyramid_stl):
-        from numpy2stl.stl2numpy import slice_mesh, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, slice_mesh
         props = get_mesh_properties(pyramid_stl)
         z_lo, z_hi = props["bounds"]["z"]
         z_mid = (z_lo + z_hi) / 2
@@ -297,7 +296,7 @@ class TestSliceMesh:
         assert np.isclose(slices[0]["z"], z_mid)
 
     def test_polygons_is_list_of_arrays(self, pyramid_stl):
-        from numpy2stl.stl2numpy import slice_mesh, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, slice_mesh
         props = get_mesh_properties(pyramid_stl)
         z_lo, z_hi = props["bounds"]["z"]
         z_mid = (z_lo + z_hi) / 2
@@ -317,7 +316,7 @@ class TestSliceMesh:
 class TestRasterizeSlice:
 
     def test_returns_bool_2d(self, pyramid_stl):
-        from numpy2stl.stl2numpy import rasterize_slice, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, rasterize_slice
         props = get_mesh_properties(pyramid_stl)
         z_lo, z_hi = props["bounds"]["z"]
         z_mid = (z_lo + z_hi) / 2
@@ -326,7 +325,7 @@ class TestRasterizeSlice:
         assert mask.ndim == 2
 
     def test_mask_shape_matches_resolution(self, pyramid_stl):
-        from numpy2stl.stl2numpy import rasterize_slice, get_mesh_properties
+        from numpy2stl.stl2numpy import get_mesh_properties, rasterize_slice
         props = get_mesh_properties(pyramid_stl)
         z_lo, z_hi = props["bounds"]["z"]
         z_mid = (z_lo + z_hi) / 2

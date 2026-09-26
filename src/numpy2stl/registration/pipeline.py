@@ -17,6 +17,12 @@ from pathlib import Path
 import numpy as np
 
 from .._paths import REPORTS_ROOT
+from .html_report import write_registration_report
+
+# Stage helpers extracted to the stages/ subpackage (B1 split).
+from .stages import _run_comparison, _run_registration, _simplify_stage
+from .stages._common import _inpaint_stl_nan, _landmark_check
+from .types import CityRegistrationReport
 
 logger = logging.getLogger(__name__)
 
@@ -29,13 +35,6 @@ def _default_out_dir(region_name: str) -> Path:
     """Return the default output folder for a region: Code/_reports/<region-slug>/."""
     slug = re.sub(r"[^\w\-]+", "_", region_name).strip("_").lower()
     return RUNS_DIR / slug
-
-from .html_report import write_registration_report
-from .types import CityRegistrationReport
-
-# Stage helpers extracted to the stages/ subpackage (B1 split).
-from .stages import _simplify_stage, _run_registration, _run_comparison
-from .stages._common import _inpaint_stl_nan, _landmark_check
 
 
 def register_city_stl(
@@ -121,8 +120,8 @@ def register_city_stl(
     CityRegistrationReport dataclass with all intermediate results.
     HTML report is always written unless out_dir=False.
     """
-    from ..stl2numpy.heightmap import mesh_to_heightmap
     from ..applications.cities import get_osm_building_heightmap
+    from ..stl2numpy.heightmap import mesh_to_heightmap
 
     step_timings: list[tuple[str, float]] = []
 
@@ -199,9 +198,9 @@ def register_city_stl(
     # even if the probe would pass (useful for validating the search itself).
     _center_search_report: dict | None = None
     if isinstance(city_name, str) and tight_bbox is not None and center_search != "never":
-        from .stages import _is_locked_registration
         from .align import register_global as _register_global_probe
         from .config import CENTER_SEARCH_DICE_MARGIN, CENTER_SEARCH_ROT_MARGIN
+        from .stages import _is_locked_registration
 
         # Coarse probe resolution — matches find_best_city_center()'s own default
         # probe_resolution (256): a cheap screening pass, not the final search.
@@ -489,8 +488,6 @@ def register_city_stl(
     reg_result        = _cmp["reg_result"]
     stl_aligned       = _cmp["stl_aligned"]
     stl_building_mask = _cmp["stl_building_mask"]
-    stl_residual      = _cmp["stl_residual"]
-    stl_for_compare   = _cmp["stl_for_compare"]
     comp_result       = _cmp["comp_result"]
     stl_polygons      = _cmp["stl_polygons"]
 

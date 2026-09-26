@@ -171,9 +171,9 @@ def _affine_rst(center, angle, scale, dx, dy) -> np.ndarray:
 
 def _compose(outer: np.ndarray, inner: np.ndarray) -> np.ndarray:
     """2×3 affine for x → outer(inner(x))."""
-    O = np.vstack([outer, [0, 0, 1]])
-    I = np.vstack([inner, [0, 0, 1]])
-    return (O @ I)[:2].astype(np.float64)
+    outer_h = np.vstack([outer, [0, 0, 1]])
+    inner_h = np.vstack([inner, [0, 0, 1]])
+    return (outer_h @ inner_h)[:2].astype(np.float64)
 
 
 def _overlap_corr(src_w: np.ndarray, tgt: np.ndarray) -> float:

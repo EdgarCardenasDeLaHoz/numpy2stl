@@ -28,7 +28,9 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
     reg_result, the aligned/masked/residual/compared arrays, comp_result, and the
     footprint polygons (prism polys mapped into OSM space, else hi-res detection).
     """
-    from ..align import building_mask as _building_mask, terrain_residual as _terrain_residual
+    from ..align import building_mask as _building_mask
+    from ..align import terrain_residual as _terrain_residual
+
     # STL segmentation goes through the mask-producer seam so it can be swapped
     # for a learned segmenter; with no producer installed produce_mask IS
     # _building_mask.  OSM masks stay on the classic call: they are
@@ -45,12 +47,16 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
         if prism_polys:
             import cv2 as _cv2
             R = resolution
-            xe = float(bx[1] - bx[0]); ye = float(by[1] - by[0])
+            xe = float(bx[1] - bx[0])
+            ye = float(by[1] - by[0])
             if xe >= ye:
-                cols = R; rows = max(1, int(round(R * ye / xe)))
+                cols = R
+                rows = max(1, int(round(R * ye / xe)))
             else:
-                rows = R; cols = max(1, int(round(R * xe / ye)))
-            c0 = (R - cols) // 2; r0 = (R - rows) // 2
+                rows = R
+                cols = max(1, int(round(R * xe / ye)))
+            c0 = (R - cols) // 2
+            r0 = (R - rows) // 2
             _m = np.zeros(osm_hm.shape, dtype=np.uint8)
             for pf in prism_polys:
                 iso = np.column_stack([c0 + pf[:, 0] * cols, r0 + pf[:, 1] * rows])
@@ -97,8 +103,8 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
     _ICP_IOU_GATE = 0.10
     if refine_polygons and comp_result.footprint_iou > _ICP_IOU_GATE:
         try:
-            from ..align import (vectorize_buildings as _vec0,
-                                 refine_registration_polygons as _poly_icp)
+            from ..align import refine_registration_polygons as _poly_icp
+            from ..align import vectorize_buildings as _vec0
             _stl_polys = _vec0(_produce_mask(stl_aligned, source="stl",
                                cell_size_m=cell_size_m, split_watershed=True),
                                regularize=True)
@@ -139,12 +145,16 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
     if prism_polys:
         try:
             R = resolution
-            xe = float(bx[1] - bx[0]); ye = float(by[1] - by[0])
+            xe = float(bx[1] - bx[0])
+            ye = float(by[1] - by[0])
             if xe >= ye:
-                cols = R; rows = max(1, int(round(R * ye / xe)))
+                cols = R
+                rows = max(1, int(round(R * ye / xe)))
             else:
-                rows = R; cols = max(1, int(round(R * xe / ye)))
-            c0 = (R - cols) // 2; r0 = (R - rows) // 2
+                rows = R
+                cols = max(1, int(round(R * xe / ye)))
+            c0 = (R - cols) // 2
+            r0 = (R - rows) // 2
             T = reg_result.transform
             stl_polygons = []
             for pf in prism_polys:

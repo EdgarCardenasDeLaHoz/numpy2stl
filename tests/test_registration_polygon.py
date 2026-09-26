@@ -1,14 +1,12 @@
 # Registration tests — polygon (split from test_registration.py, B6).
 # Tests for the registration pipeline
 # No-network unit tests run always; integration tests require osmnx + a real STL.
+import importlib.util
+
 import numpy as np
 import pytest
 
-try:
-    import cv2
-    HAS_CV2 = True
-except ImportError:
-    HAS_CV2 = False
+HAS_CV2 = importlib.util.find_spec("cv2") is not None
 
 try:
     import osmnx  # noqa: F401
@@ -34,17 +32,20 @@ class TestPolygonRegister:
     def _rects(cents, wh):
         return [np.array([[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2],
                           [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]], float)
-                for (cx, cy), (w, h) in zip(cents, wh)]
+                for (cx, cy), (w, h) in zip(cents, wh, strict=True)]
 
     @pytest.mark.parametrize("s,deg,tx,ty", [(0.667, 15.0, 40, -20),
                                              (1.0, -30.0, -25, 60), (0.667, 0.0, 10, 10)])
     def test_recovers_known_similarity_partial_overlap(self, s, deg, tx, ty):
         import cv2
+
         from numpy2stl.registration.align import register_polygons
         rng = np.random.default_rng(1)
-        oc = rng.uniform(40, 440, (80, 2)); owh = rng.uniform(8, 20, (80, 2))
+        oc = rng.uniform(40, 440, (80, 2))
+        owh = rng.uniform(8, 20, (80, 2))
         osm = self._rects(oc, owh)
-        th = np.radians(deg); c, sn = s * np.cos(th), s * np.sin(th)
+        th = np.radians(deg)
+        c, sn = s * np.cos(th), s * np.sin(th)
         M = np.array([[c, -sn, tx], [sn, c, ty]])             # STL→OSM ground truth
         Minv = cv2.invertAffineTransform(M.astype(np.float32))
         keep = rng.choice(80, 36, replace=False)              # 45% overlap

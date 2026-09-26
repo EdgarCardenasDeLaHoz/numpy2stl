@@ -9,14 +9,14 @@ from pathlib import Path
 
 import numpy as np
 
+from ._common import _imshow_heightmap
+
 logger = logging.getLogger(__name__)
 
 try:
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
-    import matplotlib.colors as mcolors
-    from matplotlib.patches import Patch
     HAS_MPL = True
 except ImportError:
     plt = None
@@ -34,7 +34,6 @@ except ImportError:
 # Public render functions (one per asset PNG)
 # ---------------------------------------------------------------------------
 
-from ._common import _imshow_heightmap
 
 def render_binarization_png(out_path: str | Path, report) -> Path:
     """
@@ -63,7 +62,7 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     if not HAS_MPL:
         raise ImportError("matplotlib is required for report rendering.")
 
-    from ..align import building_mask, building_edges
+    from ..align import building_edges, building_mask
 
     stl = report.stl_heightmap
     osm = report.osm_heightmap
@@ -93,7 +92,6 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     osm_edge  = building_edges(osm, source="osm")
 
     # Component stats — OSM cell size from known_scale if available
-    known_scale = getattr(report, "known_scale", None)
     h, w = osm.shape
     # OSM covers (stl_footprint_m * osm_margin) per side; if known_scale=1/osm_margin,
     # osm_margin=1/known_scale and osm cell size = stl_footprint_m/(known_scale*resolution).
@@ -144,8 +142,10 @@ def render_binarization_png(out_path: str | Path, report) -> Path:
     ax[2, 2].axis("off")
 
     for a in ax.ravel():
-        a.set_xlabel("col"); a.set_ylabel("row")
-    ax[2, 2].set_xlabel(""); ax[2, 2].set_ylabel("")
+        a.set_xlabel("col")
+        a.set_ylabel("row")
+    ax[2, 2].set_xlabel("")
+    ax[2, 2].set_ylabel("")
 
     fig.suptitle("Binarization: heightmaps -> building masks -> edges -> gradient "
                  "(heights are noisy; registration uses the binary footprint; "
@@ -173,7 +173,7 @@ def render_mask_overlay_png(out_path: str | Path, report) -> Path:
     if not HAS_MPL:
         raise ImportError("matplotlib is required for report rendering.")
 
-    from ..align import building_mask, apply_transform, _tolerant_iou
+    from ..align import _tolerant_iou, apply_transform, building_mask
 
     osm_mask = building_mask(report.osm_heightmap, source="osm")
     # Prefer the prism-decomposition footprint polygons (separated, regularized,
@@ -265,8 +265,9 @@ def render_matched_buildings_png(out_path: str | Path, report) -> Path:
     if not HAS_MPL:
         raise ImportError("matplotlib is required for report rendering.")
 
-    from ..align import building_mask
     import cv2
+
+    from ..align import building_mask
 
     comp = report.comparison
     stl_m = report.stl_aligned * comp.height_scale_used + comp.height_offset_used
@@ -305,13 +306,15 @@ def render_matched_buildings_png(out_path: str | Path, report) -> Path:
         if np.isfinite(fill_val) and abs(round(oh, 1) - fill_val) <= 0.05:
             n_fill += 1
             continue
-        osm_h.append(oh); stl_h.append(sh)
+        osm_h.append(oh)
+        stl_h.append(sh)
         err_map[comp_mask] = sh - oh
 
     fig, axes = plt.subplots(1, 2, figsize=(15, 6))
 
     if osm_h:
-        osm_h = np.array(osm_h); stl_h = np.array(stl_h)
+        osm_h = np.array(osm_h)
+        stl_h = np.array(stl_h)
         lim = max(osm_h.max(), stl_h.max()) * 1.05
         axes[0].scatter(osm_h, stl_h, s=14, alpha=0.5, color="#2a7a2a")
         axes[0].plot([0, lim], [0, lim], "k--", lw=1, label="y = x (perfect)")
@@ -323,7 +326,8 @@ def render_matched_buildings_png(out_path: str | Path, report) -> Path:
             axes[0].plot([0, lim], [intc, slope * lim + intc], "r-", lw=1.5,
                          label=f"fit: STL = {slope:.2f}·OSM {intc:+.1f}")
         r = np.corrcoef(osm_h, stl_h)[0, 1] if len(osm_h) > 2 else float("nan")
-        axes[0].set_xlim(0, lim); axes[0].set_ylim(0, lim)
+        axes[0].set_xlim(0, lim)
+        axes[0].set_ylim(0, lim)
         axes[0].set_xlabel("OSM building height (m)")
         axes[0].set_ylabel("STL building height (m)")
         _fill_note = (f"  (excl. {n_fill} OSM fill @ {fill_val:.0f} m)"
@@ -347,11 +351,13 @@ def render_matched_buildings_png(out_path: str | Path, report) -> Path:
     valid = em[~np.isnan(em)]
     vmax = float(np.percentile(np.abs(valid), 95)) if len(valid) else 1.0
     vmax = max(vmax, 0.1)
-    cmap = plt.get_cmap("RdBu_r").copy(); cmap.set_bad("#f4f4f4")
+    cmap = plt.get_cmap("RdBu_r").copy()
+    cmap.set_bad("#f4f4f4")
     im = axes[1].imshow(em, cmap=cmap, vmin=-vmax, vmax=vmax, origin="lower")
     fig.colorbar(im, ax=axes[1], label="STL - OSM (m)", fraction=0.046, pad=0.04)
     axes[1].set_title("Per-building height error (matched only)", fontsize=11)
-    axes[1].set_xlabel("col"); axes[1].set_ylabel("row")
+    axes[1].set_xlabel("col")
+    axes[1].set_ylabel("row")
 
     fig.tight_layout()
     fig.savefig(str(out_path), dpi=140, bbox_inches="tight")
@@ -371,8 +377,9 @@ def render_footprint_rgchannel_png(out_path: str | Path, report) -> Path:
     if not HAS_MPL:
         raise ImportError("matplotlib is required for report rendering.")
 
-    from ..align import building_mask, apply_transform
     from matplotlib.patches import Patch
+
+    from ..align import apply_transform, building_mask
 
     # Prefer report.stl_building_mask -- the mask _run_comparison actually scored
     # against, already warped into OSM space with split_watershed=True applied
@@ -458,8 +465,9 @@ def render_vectorized_png(out_path: str | Path, report) -> Path | None:
     out_path = Path(out_path)
     if not HAS_MPL:
         return None
-    from ..align import building_mask, vectorize_buildings
     from matplotlib.collections import LineCollection
+
+    from ..align import building_mask, vectorize_buildings
 
     # Prefer the hi-res adaptive STL polygons (separated footprints) when present.
     stl_polys = getattr(report, "_stl_polygons", None)
@@ -482,7 +490,8 @@ def render_vectorized_png(out_path: str | Path, report) -> Path | None:
         avg = nverts / max(1, len(polys))
         ax.set_title(f"{title}: {len(polys)} polygons, {nverts} verts ({avg:.1f}/poly)",
                      fontsize=10)
-        ax.set_xlabel("col"); ax.set_ylabel("row")
+        ax.set_xlabel("col")
+        ax.set_ylabel("row")
 
     fig, axes = plt.subplots(1, 2, figsize=(15, 7))
     _draw(axes[0], stl_polys, "STL footprints (vectorized)", "#c0392b")
