@@ -21,7 +21,6 @@ __all__ = [
 ############################# convert array to facet list ##########################################
 
 
-
 def array_to_mesh(
     A: np.ndarray | None,
     mask_val: float | None = None,
@@ -167,26 +166,6 @@ def array2faces(A, mask_val=0):
     return vertices, faces
 
 
-def limit_facet_size(facets, max_width=1000.0, max_depth=1000.0, max_height=1000.0):
-    """
-    max_width, max_depth, max_height (floats) - maximum size of the stl object (in mm).
-                    Match this to the dimensions of a 3D printer platform.
-    """
-    xsize = np.ptp(facets[:, 3::3])
-    if xsize > max_width:
-        facets = facets * float(max_width) / xsize
-
-    ysize = np.ptp(facets[:, 4::3])
-    if ysize > max_depth:
-        facets = facets * float(max_depth) / ysize
-
-    zsize = np.ptp(facets[:, 5::3])
-    if zsize > max_height:
-        facets = facets * float(max_height) / zsize
-
-    return facets
-
-
 def polygon_to_complex(vertices, perimeters=None, z_margin=1):
 
     if perimeters is None:
@@ -282,7 +261,3 @@ def perimeter_to_complex_walls(vertices, perimeters, z_margin=1):
 
     wall_vertices = np.array(wall_vertices)
     return wall_vertices
-
-
-def roll2d(image, shifts):
-    return np.roll(np.roll(image, shifts[0], axis=0), shifts[1], axis=1)

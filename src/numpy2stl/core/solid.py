@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from collections import defaultdict
-
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
@@ -180,16 +178,6 @@ def normal_to_dict(normals, decimals=3):
     groups = np.split(idx_sort, split_indices)
 
     return {tuple(norm): group.tolist() for norm, group in zip(unique_norms, groups)}
-
-
-def edges_to_dict(edge_idx):
-
-    edge_dict = defaultdict(list)
-    for f_idx, tri in enumerate(edge_idx):
-        for e in tri:
-            edge_dict[e].append(f_idx)
-
-    return edge_dict
 
 
 def contiguous_edges(edge_idx, idx_list):

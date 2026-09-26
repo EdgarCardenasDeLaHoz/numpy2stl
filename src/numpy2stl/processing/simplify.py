@@ -1,13 +1,11 @@
 import math
 from collections import defaultdict
 
-import matplotlib.pyplot as plt
 import numpy as np
 import shapely
-import triangle as tr
 from shapely import Polygon, constrained_delaunay_triangles, orient_polygons
 
-from ..core.polygon import get_ordered_perimeter
+from ..core.polygon import get_ordered_perimeter, triangulate_polygon
 from ..core.solid import get_open_edges, get_surfaces
 
 
@@ -223,48 +221,6 @@ def get_surface_perimeter(faces, projected):
     return perimeters, removed_faces
 
 
-def triangulate_polygon(vertices_2D, perimeters):
-
-    grouped_edges = perimeters_to_edges(perimeters)
-
-    holes = []
-    if len(grouped_edges) > 1:
-        for i in range(1, len(grouped_edges)):
-
-            verts, faces = triangulate_edges(vertices_2D, grouped_edges[i])
-            tris = verts[faces]
-            cents = tris.mean(axis=1)
-            holes.append(cents[0])
-    else:
-        holes = None
-
-    all_edges = np.concatenate(grouped_edges)
-    vertices, faces = triangulate_edges(vertices_2D, all_edges, holes=holes)
-
-    return vertices, faces
-
-
-def triangulate_edges(vertices_2D, edges, holes=None):
-
-    if vertices_2D.shape[1] == 3:
-        vertices_2D = vertices_2D[:, :2]
-
-    if holes is None:
-        shape = {"vertices": vertices_2D, "segments": edges}
-    else:
-        shape = {"vertices": vertices_2D, "segments": edges, "holes": holes}
-    t = tr.triangulate(shape, "p")
-    vertices = t["vertices"]
-    faces = t["triangles"]
-
-    sub_faces = np.unique(faces.reshape(1, -1), return_inverse=True)[1].reshape(-1, 3)
-
-    vertices = vertices[edges[:, 0]]
-    faces = np.argsort(edges[:, 0])[sub_faces]
-
-    return vertices, faces
-
-
 def project_to_plane_with_face(vertices, ref_face):
     """
     Project 3D vertices to 2D plane using the plane defined by a single triangle (ref_face)
@@ -283,39 +239,6 @@ def project_to_plane_with_face(vertices, ref_face):
     projected[:, 1] = np.dot(vertices - v0, axis_y)
 
     return projected, normal
-
-
-def perimeters_to_edges(perimeters):
-    edges = [np.stack([p, np.roll(p, 1, axis=0)], axis=1) for p in perimeters]
-    return edges
-
-
-def plot_surface(projected, group_faces, open_edges, pts_idx, perimeters, simp_faces):
-
-    if len(group_faces) < 1000:
-
-        plt.scatter(projected[pts_idx, 0], projected[pts_idx, 1], s=5)
-        for f in group_faces:
-            f = np.append(f, f[0])
-            plt.plot(projected[f, 0], projected[f, 1], "k-", alpha=0.3)
-
-    if len(group_faces) < 100:
-        for n, (idx) in enumerate(pts_idx):
-            plt.text(projected[idx, 0], projected[idx, 1], n)
-
-    for e in open_edges:
-        plt.plot(projected[e, 0], projected[e, 1], "r-", lw=5)
-
-    for p in perimeters:
-        plt.plot(projected[p, 0], projected[p, 1], "g-", lw=4)
-
-    for f in simp_faces:
-        f = np.append(f, f[0])
-        plt.plot(projected[f, 0], projected[f, 1], "b-", lw=2)
-
-    plt.axis("equal")
-    plt.title("Projected surface + simplified mesh")
-    return
 
 
 def simplify_surface(vertices, perimeters, normal=None):

@@ -1,7 +1,7 @@
 """OSM building-height raster generation for named cities.
 
-Mirrors the oceans.py pattern: named region wrappers with hardcoded bboxes
-call a generic get_osm_building_heightmap() core function.
+Named region wrappers with hardcoded bboxes call a generic
+get_osm_building_heightmap() core function.
 
 Return format matches stl2numpy/heightmap.py::mesh_to_heightmap() exactly so
 both can be passed directly to registration.align.register().
@@ -227,7 +227,7 @@ def get_city_bbox(city_name: str) -> tuple[float, float, float, float]:
 
     Returns
     -------
-    tuple (N, S, E, W) in decimal degrees — matches oceans.py convention.
+    tuple (N, S, E, W) in decimal degrees.
     """
     if not HAS_OSMNX:
         raise ImportError("osmnx is required. Install with: pip install osmnx")
@@ -993,28 +993,10 @@ def _make_result(heightmap: np.ndarray, N, S, E, W, resolution: int) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Named city wrappers (hardcoded bboxes for reproducibility, like oceans.py)
+# Named city wrappers (hardcoded bboxes for reproducibility)
 # ---------------------------------------------------------------------------
 
 def get_philadelphia_heightmap(resolution: int = 512) -> dict:
     """Philadelphia, PA — covers the full city extent."""
     bbox = (40.060, 39.860, -74.950, -75.280)  # (N, S, E, W)
-    return get_osm_building_heightmap(bbox, resolution=resolution)
-
-
-def get_new_york_heightmap(resolution: int = 512) -> dict:
-    """New York City, NY — Manhattan + outer boroughs."""
-    bbox = (40.920, 40.490, -73.700, -74.260)
-    return get_osm_building_heightmap(bbox, resolution=resolution)
-
-
-def get_chicago_heightmap(resolution: int = 512) -> dict:
-    """Chicago, IL."""
-    bbox = (42.020, 41.640, -87.520, -87.940)
-    return get_osm_building_heightmap(bbox, resolution=resolution)
-
-
-def get_boston_heightmap(resolution: int = 512) -> dict:
-    """Boston, MA."""
-    bbox = (42.400, 42.220, -70.990, -71.190)
     return get_osm_building_heightmap(bbox, resolution=resolution)

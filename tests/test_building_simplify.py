@@ -66,8 +66,8 @@ def _building_with_clutter():
 class TestDecimateToTolerance:
 
     def test_reduces_faces_within_budget_preserving_footprint(self):
-        from numpy2stl.processing.building_simplify import (
-            decimate_to_tolerance, _symmetric_hausdorff)
+        from numpy2stl.processing.building_simplify import decimate_to_tolerance
+        from numpy2stl.processing.building_simplify.decimate import _symmetric_hausdorff
         mesh = _building_with_clutter()
         tol = 3.5
         simp, ratio, h = decimate_to_tolerance(mesh, deviation_tol=tol)

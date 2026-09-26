@@ -7,7 +7,6 @@ Core functions are available directly::
 Submodules with heavier dependencies are imported explicitly::
 
     import numpy2stl.processing.simplify as simp   # needs scipy/shapely
-    import numpy2stl.applications.oceans   as oceans  # needs geo2stl, rasterio, h5py
     import numpy2stl.applications.puzzle   as puzzle  # needs trimesh, shapely
     import numpy2stl.processing.boolean    as boolean # needs pymeshlab
     import numpy2stl.utils.visualization   as view    # needs matplotlib
@@ -65,12 +64,6 @@ from .utils.image import (
     resize_max,
 )
 
-# Expose submodules for explicit import
-from . import applications, core, io, processing, registration, stl2numpy, utils
-
-# Backward-compatible alias — prefer array_to_mesh in new code
-numpy2stl = array_to_mesh
-
 __all__ = [
     # Core mesh generation
     "array_to_mesh",
@@ -99,14 +92,4 @@ __all__ = [
     "triangles_to_facets",
     "get_open_edges",
     "validate_object",
-    # Submodules
-    "core",
-    "io",
-    "processing",
-    "stl2numpy",
-    "utils",
-    "applications",
-    "registration",
-    # Deprecated
-    "numpy2stl",
 ]

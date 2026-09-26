@@ -54,28 +54,6 @@ def make_hollow_cap(pts, offset_dist=2):
     return outer_coords, edges, holes
 
 
-def prism_wall_vertices_optimized(pts, z0, z1, is_internal=False):
-    walls = []
-    n = len(pts)
-    for i in range(n):
-        p1 = pts[i]
-        p2 = pts[(i + 1) % n]
-
-        b1 = [p1[0], p1[1], z0]
-        b2 = [p2[0], p2[1], z0]
-        t1 = [p1[0], p1[1], z1]
-        t2 = [p2[0], p2[1], z1]
-
-        if is_internal:
-            walls.append([t1, b1, b2])
-            walls.append([t1, b2, t2])
-        else:
-            walls.append([t1, b2, b1])
-            walls.append([t2, b2, t1])
-
-    return np.array(walls)
-
-
 def extrude_solid_polygon(pts, z0=0, z1=5):
     """
     Creates a watertight 3D manifold from 2D points using Trimesh's

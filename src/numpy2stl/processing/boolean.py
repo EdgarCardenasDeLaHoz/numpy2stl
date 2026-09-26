@@ -6,25 +6,6 @@ import pymeshlab as ml
 logger = logging.getLogger(__name__)
 
 
-def union_pymesh(models):
-
-    ms = ml.MeshSet()
-
-    for key in models:
-        vx, fs = models[key]
-        vx = vx.astype(np.float32)
-        fs = fs.astype(np.int32)
-        mesh = ml.Mesh(vertex_matrix=vx, face_matrix=fs)
-        ms.add_mesh(mesh, key)
-
-    ms.generate_boolean_intersection(first_mesh=0, second_mesh=1)
-
-    result = ms.current_mesh()
-    vx, fs = result.vertex_matrix(), result.face_matrix()
-
-    return vx, fs
-
-
 def clean_mesh(ms):
     """Utility to fix common geometric issues before booleans."""
     ms.meshing_remove_unreferenced_vertices()

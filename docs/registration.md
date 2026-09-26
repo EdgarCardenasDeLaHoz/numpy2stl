@@ -101,8 +101,7 @@ from numpy2stl.applications.cities import get_osm_building_heightmap
 osm = get_osm_building_heightmap("Seattle, WA, USA", resolution=512)
 ```
 
-Currently named wrappers: `get_philadelphia_heightmap`, `get_new_york_heightmap`,
-`get_chicago_heightmap`, `get_boston_heightmap`.
+Currently named wrappers: `get_philadelphia_heightmap`.
 
 ---
 

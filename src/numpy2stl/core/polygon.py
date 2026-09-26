@@ -78,74 +78,8 @@ def perimeters_to_edges(perimeters):
     return edges
 
 
-def perimeter_to_2D(perimeters, normal, simplify_lines=False):
-
-    perimeter_2d = [rotate_3D(lines, normal, [0, 0, 1]) for lines in perimeters]
-
-    if simplify_lines:
-        angles = [get_perimeter_angles(line) for line in perimeter_2d]
-        perimeter_2d = [np.array(line[angles[n] != 180]) for n, line in enumerate(perimeter_2d)]
-
-    return perimeter_2d
-
-
 ##########################################################################################
 ##########################################################################################
-
-
-def get_perimeter_normal(perimeter):
-
-    n = 0
-    normal = np.cross(perimeter[n + 1] - perimeter[n], perimeter[n - 1] - perimeter[n])
-    while (np.linalg.norm(normal) == 0) and (n < (len(perimeter)) - 1):
-        normal = np.cross(perimeter[n + 1] - perimeter[n], perimeter[n - 1] - perimeter[n])
-        n = n + 1
-
-    normal = normal / np.linalg.norm(normal)
-
-    return normal
-
-
-def get_area(perimeter):
-
-    normal = get_perimeter_normal(perimeter)
-    perimeter = rotate_3D(perimeter, normal, [0, 0, 1])
-
-    x, y = perimeter[:, 0], perimeter[:, 1]
-
-    area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
-
-    orient = get_orientation(perimeter)
-    if orient[0] < 0:
-        area = -area
-
-    return area
-
-
-def get_orientation(perimeter):
-
-    edges = perimeters_to_edges([perimeter])
-    orientation = [
-        np.sum(np.diff(e[:, :, 0], n=1, axis=1) * np.sum(e[:, :, 1], axis=1)[:, None])
-        for e in edges
-    ]
-    return orientation
-
-
-def set_orientation(perimeter, orientation=1):
-
-    perimeter_out = []
-    for p in perimeter:
-        result = get_orientation(p)[0]
-        if (orientation < 0 and result > 0) or (orientation > 0 and result < 0):
-            p = p[::-1]
-        perimeter_out.append(p)
-
-    return perimeter_out
-
-
-##########################################################################################
-############################################################################################
 
 
 def get_perimeter_angles(line_2D):
@@ -159,14 +93,6 @@ def get_perimeter_angles(line_2D):
     angles = get_angle_vectors(bc, ba)
 
     return angles
-
-
-def simplify_line(line_2D):
-
-    angles = get_perimeter_angles(line_2D)
-    simpified_line = np.array(line_2D[angles != 180])
-
-    return simpified_line
 
 
 def get_angle_vectors(ba, bc):
