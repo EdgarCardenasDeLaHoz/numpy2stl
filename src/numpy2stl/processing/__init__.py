@@ -1,6 +1,6 @@
 from ..core.solid import simplify_surface
 from .boolean import from_manifold, to_manifold, union
-from .decimate import decimate_to_tolerance, heightfield_tin
+from .decimate import decimate_to_tolerance, heightfield_tin, heightfield_tin_budget
 from .extrusion import (
     extrude_solid_polygon,
     make_hollow_cap,
@@ -19,6 +19,7 @@ __all__ = [
     "union",
     # decimate
     "heightfield_tin",
+    "heightfield_tin_budget",
     "decimate_to_tolerance",
     # simplify
     "simplify_mesh_surfaces",

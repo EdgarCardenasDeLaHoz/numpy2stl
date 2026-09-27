@@ -31,3 +31,18 @@ def test_flat_field_needs_only_the_border_and_seeds():
     idx, tris = heightfield_tin(z, max_error=0.05, seed_step=8)
     border = 2 * 64 + 2 * 80 - 4
     assert len(idx) <= border + (64 // 8 + 1) * (80 // 8 + 1)
+
+
+def test_budget_raises_the_bound_until_the_mesh_fits():
+    from numpy2stl.processing.decimate import heightfield_tin_budget
+
+    y, x = np.mgrid[0:120, 0:160]
+    z = 5 + 20 * np.exp(-(((x - 80) / 25) ** 2 + ((y - 60) / 20) ** 2)) + 0.5 * np.sin(x / 2.5)
+    full, _ = heightfield_tin(z, max_error=0.02)
+    idx, tris, err = heightfield_tin_budget(z, 0.02, max_vertices=len(full) // 3)
+    assert len(idx) <= len(full) // 3
+    assert err > 0.02
+    assert _interp_error(z, idx, tris) <= err + 1e-9
+    # A budget the exact mesh fits returns the exact mesh's bound.
+    idx2, _, err2 = heightfield_tin_budget(z, 0.02, max_vertices=10 * len(full))
+    assert err2 <= 0.02 and len(idx2) <= len(full) * 1.05
