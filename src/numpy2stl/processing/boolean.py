@@ -87,7 +87,12 @@ def _check_volume(vertices, faces, cutters, pieces, max_loss):
         )
 
 
-def _to_manifold(vertices, faces, what):
+def to_manifold(vertices, faces, what="mesh", strict=True):
+    """A ``manifold3d.Manifold`` from an indexed mesh (float64).
+
+    ``strict`` raises ``ValueError`` if the mesh is not a closed manifold solid;
+    otherwise the (invalid) Manifold is returned for the caller to check.
+    """
     import manifold3d as mfd  # optional extra: numpy2stl[boolean]
 
     mesh = mfd.Mesh64(
@@ -96,9 +101,34 @@ def _to_manifold(vertices, faces, what):
         tri_verts=np.array(faces, dtype=np.uint64, order="C"),
     )
     solid = mfd.Manifold(mesh)
-    if solid.status() != mfd.Error.NoError:
+    if strict and solid.status() != mfd.Error.NoError:
         raise ValueError(f"{what} is not a closed manifold solid: {solid.status()}")
     return solid
+
+
+def from_manifold(solid):
+    """``(vertices float64 (N, 3), faces int64 (M, 3))`` of a Manifold."""
+    out = solid.to_mesh64()
+    return (np.array(out.vert_properties[:, :3], dtype=np.float64),
+            np.array(out.tri_verts, dtype=np.int64))
+
+
+def union(meshes):
+    """Union of the valid closed meshes in ``meshes`` [(vertices, faces), ...].
+
+    Returns ``(Manifold or None, number rejected as not closed/manifold)``.
+    """
+    import manifold3d as mfd
+
+    ms = [to_manifold(v, f, strict=False) for v, f in meshes]
+    good = [m for m in ms if m.status() == mfd.Error.NoError and not m.is_empty()]
+    if not good:
+        return None, len(ms)
+    u = mfd.Manifold.batch_boolean(good, mfd.OpType.Add) if len(good) > 1 else good[0]
+    return u, len(ms) - len(good)
+
+
+_to_manifold = to_manifold
 
 
 def _intersect_manifold(vertices, faces, cutters):
@@ -109,11 +139,7 @@ def _intersect_manifold(vertices, faces, cutters):
         if piece.is_empty():
             logger.warning(f"Piece {key}: empty intersection")
             continue
-        out = piece.to_mesh64()
-        pieces[key] = (
-            np.array(out.vert_properties[:, :3], dtype=np.float64),
-            np.array(out.tri_verts, dtype=np.int64),
-        )
+        pieces[key] = from_manifold(piece)
     return pieces
 
 

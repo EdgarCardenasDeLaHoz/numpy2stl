@@ -8,9 +8,10 @@ grid cell ``[col*w, (col+1)*w] x [row*h, (row+1)*h]`` with row 0 at min-y.
 import math
 
 import numpy as np
-import trimesh
 from shapely.geometry import box
 from shapely.geometry.polygon import orient
+
+from ..core.extrude import prism
 
 
 def make_jigsaw_cutters(
@@ -144,10 +145,7 @@ def jigsaw_outlines(
 
 
 def _extrude(poly, z0, z1):
-    mesh = trimesh.creation.extrude_polygon(poly, height=z1 - z0)
-    vertices = np.asarray(mesh.vertices, dtype=np.float64)
-    vertices[:, 2] += z0
-    return vertices, np.asarray(mesh.faces, dtype=np.int64)
+    return prism(poly, z0, z1)
 
 
 # ---------------------------------------------------------------------------
