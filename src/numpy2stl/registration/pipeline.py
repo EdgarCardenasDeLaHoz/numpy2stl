@@ -5,6 +5,11 @@
 façade that re-exports the public entry points.  Import via the package::
 
     from numpy2stl.registration import register_city_stl
+
+The reference side (OSM buildings, masks, nDSM) comes from a
+``reference.ReferenceSource`` passed in by the caller; numpy2stl fetches nothing
+and knows no geography.  strm2stl's ``city2stl.registration.register_city_stl``
+builds the OSM source from a city name or bbox.
 """
 
 from __future__ import annotations
@@ -18,6 +23,7 @@ import numpy as np
 
 from .._paths import REPORTS_ROOT
 from .html_report import write_registration_report
+from .reference import ReferenceSource
 
 # Stage helpers extracted to the stages/ subpackage (B1 split).
 from .stages import _run_comparison, _run_registration, _simplify_stage
@@ -39,19 +45,14 @@ def _default_out_dir(region_name: str) -> Path:
 
 def register_city_stl(
     stl_file: str,
-    city_name: str | tuple,
+    reference: ReferenceSource,
     resolution: int = 1024,
-    default_height: float = 10.0,
-    levels_to_meters: float = 3.5,
     max_scale_ratio: float = 5.0,
     height_scale: float | None = None,
     stl_z_axis: int = 2,
     out_dir: str | Path | None = None,
     refine: bool = True,
     forced_scale: float | None = None,
-    center: tuple[float, float] | None = None,
-    tallest_m: float | None = None,
-    scale_m_per_unit: float | None = None,
     detect_resolution_factor: int = 2,
     height_source: str = "osm",
     forced_rotation: float | None = None,
@@ -76,6 +77,7 @@ def register_city_stl(
     # find_best_city_center() explicitly (e.g. for testing/calibrating a new
     # gate) despite this.
     center_search: str = "never",
+    region_name: str | None = None,
 ) -> CityRegistrationReport:
     """
     Full pipeline: STL → heightmap → OSM raster → register → compare → (report).
@@ -83,16 +85,16 @@ def register_city_stl(
     Parameters
     ----------
     stl_file         : path to city STL (no geographic metadata required)
-    city_name        : city name string (e.g. "Philadelphia, PA, USA") or
-                       (N, S, E, W) bbox tuple for the OSM fetch
+    reference        : a ``reference.ReferenceSource`` producing the building
+                       heightmap / masks / nDSM (strm2stl:
+                       ``city2stl.registration.OSMReference``; in-memory arrays:
+                       ``reference.StaticReference``)
     resolution       : output grid size for the comparison/report heightmaps
                        (square, default 1024).  The registration SEARCH always
                        runs at REGISTER_RES (512) and is resolution-independent,
                        so raising this only sharpens the comparison/footprint
                        images (more agreement pixels) without changing the
                        transform or paying a larger search cost.
-    default_height   : fallback building height for OSM (metres, default 10)
-    levels_to_meters : OSM floors → metres conversion (default 3.5)
     max_scale_ratio  : maximum spatial scale search range (default 5.0)
     height_scale     : STL model units → metres. None = auto-estimate.
     stl_z_axis       : which mesh axis is elevation (default 2 = Z)
@@ -100,28 +102,37 @@ def register_city_stl(
                        Defaults to the gitignored Code/_reports/{region}/
                        (mirrors the skyline runs/ convention).
                        Pass False to suppress all file output.
-    center_search    : "auto" (default) — after resolving the tight OSM bbox from
-                       `center`/geocoding, run a cheap coarse register_global()
-                       probe; if it does NOT show a sharp Dice/rotation lock
-                       (the single geocoded center is probably wrong for this
-                       STL — see applications.cities.get_city_center_point()'s
-                       docstring), search a ring of alternate centers via
-                       find_best_city_center() and use the winning candidate's
-                       bbox for the rest of the pipeline. "always" forces the
+    height_source    : "osm" (reference heights) or "lidar" (per-footprint median
+                       of ``reference.ndsm()``; falls back to the reference heights)
+    center_search    : "auto" — after resolving an anchored reference frame, run a
+                       cheap coarse register_global() probe; if it does NOT show a
+                       sharp Dice/rotation lock (the guessed centre is probably
+                       wrong for this STL), score the source's
+                       ``candidate_targets`` via center_search.find_best_target()
+                       and use the winning frame for the rest of the pipeline. "always" forces the
                        search even when the probe would have passed (useful to
                        validate the search itself). "never" is the exact old
                        behaviour: no probe, no search, single geocode only.
                        A failed/unresolved search falls back to the original
                        bbox (never crashes) and is recorded on the report's
                        `_center_search` field.
+    region_name      : report / default output-folder name (default: ``reference.name``)
 
     Returns
     -------
     CityRegistrationReport dataclass with all intermediate results.
     HTML report is always written unless out_dir=False.
     """
-    from ..applications.cities import get_osm_building_heightmap
     from ..stl2numpy.heightmap import mesh_to_heightmap
+
+    if isinstance(reference, (str, tuple, list)):
+        raise TypeError(
+            "numpy2stl.registration.register_city_stl no longer fetches OSM: pass a "
+            "ReferenceSource (numpy2stl.registration.reference).  To register against a "
+            "city name or (N, S, E, W) bbox use strm2stl's "
+            "city2stl.registration.register_city_stl(stl_file, city_name, ...).")
+    if region_name is None:
+        region_name = str(getattr(reference, "name", "reference"))
 
     step_timings: list[tuple[str, float]] = []
 
@@ -132,7 +143,8 @@ def register_city_stl(
         logger.info("  %-28s %.2f s", name, step_timings[-1][1])
         return result
 
-    logger.info("register_city_stl: %s  city=%s  resolution=%d", stl_file, city_name, resolution)
+    logger.info("register_city_stl: %s  reference=%s  resolution=%d", stl_file, region_name,
+                resolution)
 
     # `eff_stl_file` is the mesh actually rasterized for segmentation/registration.
     # It becomes the simplified mesh once the model scale is known (see Stage 0
@@ -148,15 +160,14 @@ def register_city_stl(
         projection="max",
         z_axis=stl_z_axis,
         isotropic=True,   # square pixels → no aspect stretch vs isotropic OSM
+        row0="south",     # registration works row 0 = south, like the reference rasters
     )
     stl_hm = _inpaint_stl_nan(stl_result["heightmap"])
 
-    # 1b. Estimate a tight OSM bbox from the STL's scale.
-    # The STL's tallest feature (z_max) anchors the model→metres scale:
-    #   scale = city tallest_m / stl_z_max ;  footprint_m = stl_xy_extent * scale
-    # This avoids fetching the entire 25 km city for a ~1 km model.
-    from ..applications.cities import estimate_bbox_from_stl
-
+    # 1b. Ask the reference for a frame sized to the STL.  For OSM the STL's tallest
+    # feature (z_max) anchors the model→metres scale (scale = tallest_m / stl_z_max,
+    # footprint_m = stl_xy_extent * scale), which avoids fetching the entire 25 km
+    # city for a ~1 km model.
     bx = stl_result["bounds"]["x"]
     by = stl_result["bounds"]["y"]
     bz = stl_result["bounds"]["z"]
@@ -166,38 +177,32 @@ def register_city_stl(
     # Fetch OSM at 1.5x the STL footprint. Larger frames shrink the STL within
     # the grid and weaken the base registration; 1.5x balances surrounding
     # context against keeping the STL large enough to register reliably.
-    from .config import DEFAULT_OSM_MARGIN, M_PER_DEG_LAT
+    from .config import DEFAULT_OSM_MARGIN
     osm_margin = DEFAULT_OSM_MARGIN
-    osm_fetch_target = city_name
     known_scale = None
     geometric_anchor = None   # 1/osm_margin — kept for the report's anchor line
-    if isinstance(city_name, str):
-        tight_bbox = estimate_bbox_from_stl(
-            city_name, stl_z_max, stl_xy_extent, osm_margin=osm_margin,
-            center=center, tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit,
-        )
-        if tight_bbox is not None:
-            osm_fetch_target = tight_bbox
-            # OSM frame is osm_margin × the STL footprint, both rendered at the
-            # same resolution → the STL fills 1/osm_margin of the OSM frame.
-            geometric_anchor = 1.0 / osm_margin
-            known_scale = geometric_anchor
+    osm_fetch_target, anchored = reference.resolve_target(stl_z_max, stl_xy_extent, osm_margin)
+    if anchored:
+        # Reference frame is osm_margin × the STL footprint, both rendered at the
+        # same resolution → the STL fills 1/osm_margin of the reference frame.
+        geometric_anchor = 1.0 / osm_margin
+        known_scale = geometric_anchor
 
-    # 1c. Center-search safety net: a single "Downtown {city}" geocode (or an
-    # explicit `center`) has no verification against what the STL actually
+    # 1c. Center-search safety net: a single guessed centre (for OSM a
+    # "Downtown {city}" geocode or an explicit `center`) has no verification against what the STL actually
     # depicts — for a tight bbox (~osm_margin x footprint) even a modest
     # geocoding miss is a complete location mismatch (measured: Barcelona,
     # Paris, Lisbon, Bilbao). A cheap coarse register_global() probe against
-    # the resolved tight_bbox catches this: if the probe's Dice/rotation
+    # the resolved frame catches this: if the probe's Dice/rotation
     # sweeps show no real peak (is_locked=False), the location is probably
-    # wrong, so search a ring of alternate centers via find_best_city_center()
+    # wrong, so score the source's candidate frames via find_best_target()
     # and use the winning candidate's bbox instead — 100% consistent with the
     # decision `_is_locked_registration()` reuses from global_search.py, not a
     # separately-tuned gate. "never" = exact old behaviour (no probe, no
     # search); "auto" = only search when the probe fails; "always" = search
     # even if the probe would pass (useful for validating the search itself).
     _center_search_report: dict | None = None
-    if isinstance(city_name, str) and tight_bbox is not None and center_search != "never":
+    if anchored and center_search != "never":
         from .align import register_global as _register_global_probe
         from .config import CENTER_SEARCH_DICE_MARGIN, CENTER_SEARCH_ROT_MARGIN
         from .stages import _is_locked_registration
@@ -209,9 +214,8 @@ def register_city_stl(
         if not _run_search:
             try:
                 _probe_osm = _timed(
-                    "Center-search probe: fetch OSM", get_osm_building_heightmap,
-                    tight_bbox, resolution=_PROBE_RES,
-                    default_height=default_height, levels_to_meters=levels_to_meters,
+                    "Center-search probe: fetch OSM", reference.building_heightmap,
+                    osm_fetch_target, _PROBE_RES,
                 )
                 import cv2 as _cv2_probe
                 _stl_probe = np.nan_to_num(stl_hm.astype(np.float32), nan=0.0)
@@ -240,13 +244,13 @@ def register_city_stl(
 
         if _run_search:
             logger.info("Center-search: probe did not lock (or center_search='always') — "
-                        "searching alternate centers for %r.", city_name)
-            from .center_search import find_best_city_center
+                        "searching alternate centers for %r.", region_name)
+            from .center_search import find_best_target
             _search = _timed(
-                "Center-search: find_best_city_center", find_best_city_center,
-                city_name, stl_z_max, stl_xy_extent, stl_hm,
-                tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit,
-                initial_center=center,
+                "Center-search: find_best_target", find_best_target,
+                reference, stl_hm,
+                reference.candidate_targets(stl_z_max, stl_xy_extent, osm_margin),
+                osm_margin=osm_margin,
             )
             if _center_search_report is None:
                 _center_search_report = {"probe": None, "search": _search}
@@ -257,13 +261,13 @@ def register_city_stl(
                 geometric_anchor = 1.0 / osm_margin
                 known_scale = geometric_anchor
                 logger.info("Center-search RESOLVED for %r: new center %s "
-                            "(%d candidates tried).", city_name, _search["center"],
+                            "(%d candidates tried).", region_name, _search["center"],
                             _search["candidates_tried"])
             else:
                 logger.warning("Center-search did NOT resolve for %r after %d candidates "
                                "(best dice_sharpness=%.3f rot_sharpness=%.3f) — keeping "
                                "the original single-geocode bbox; registration quality for "
-                               "this city may still be unreliable.", city_name,
+                               "this city may still be unreliable.", region_name,
                                _search["candidates_tried"], _search["best_dice_sharpness"],
                                _search["best_rot_sharpness"])
 
@@ -279,7 +283,7 @@ def register_city_stl(
     # "decimate" replaces the mesh + re-renders stl_hm; "prism" leaves the registration
     # mesh and produces a prism heightmap + footprint polygons for the comparison.
     _simpl = _simplify_stage(
-        stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit, stl_hm,
+        stl_file, reference.m_per_unit(stl_z_max), stl_hm,
         simplify_mode=simplify_mode, simplify_mesh=simplify_mesh, simplify_tol_m=simplify_tol_m,
         save_simplified=save_simplified, decimation_curve=decimation_curve,
         resolution=resolution, stl_z_axis=stl_z_axis, mesh_to_heightmap=mesh_to_heightmap,
@@ -296,35 +300,26 @@ def register_city_stl(
     # 2. OSM building heights (over the tight bbox when available)
     osm_result = _timed(
         "Fetch OSM building heights",
-        get_osm_building_heightmap,
+        reference.building_heightmap,
         osm_fetch_target,
-        resolution=resolution,
-        default_height=default_height,
-        levels_to_meters=levels_to_meters,
+        resolution,
     )
     osm_hm = osm_result["heightmap"]
 
-    # 2b. Metres-per-pixel of the OSM grid (the comparison grid). Used to size the
-    # terrain top-hat kernel in physical units so the building-height residual is
-    # consistent across resolutions.
-    import math as _math
+    # 2b. Metres-per-pixel of the reference grid (the comparison grid), from the
+    # source. Used to size the terrain top-hat kernel in physical units so the
+    # building-height residual is consistent across resolutions.
     (W_, E_), (S_, N_) = osm_result["bounds"]["x"], osm_result["bounds"]["y"]
-    dlon = (E_ - W_) / osm_hm.shape[1]
-    dlat = (N_ - S_) / osm_hm.shape[0]
-    lat_c = (N_ + S_) / 2.0
-    dx_m = abs(dlon) * M_PER_DEG_LAT * _math.cos(_math.radians(lat_c))
-    dy_m = abs(dlat) * M_PER_DEG_LAT
-    cell_size_m = float((dx_m + dy_m) / 2.0)
-    logger.info("OSM grid cell size: %.2f m/px (%.2f x %.2f)", cell_size_m, dx_m, dy_m)
+    cell_size_m = float(osm_result["cell_size_m"])
+    logger.info("Reference grid cell size: %.2f m/px", cell_size_m)
 
-    # 2b1. Measured-height source: replace per-footprint OSM tag heights with the
-    # median lidar nDSM inside each footprint (fixes the 10 m fill + levels guesses
+    # 2b1. Measured-height source: replace per-footprint reference heights with the
+    # median nDSM (reference.ndsm) inside each footprint (fixes the 10 m fill + levels guesses
     # + untagged buildings).  No-ops gracefully to OSM tags when deps/coverage are
     # missing.  Footprint geometry (the OSM mask) is unchanged — only the heights.
     if str(height_source).lower() == "lidar":
         try:
-            from ..applications.lidar import get_ndsm
-            ndsm = _timed("Fetch lidar nDSM", get_ndsm, (N_, S_, E_, W_), resolution=resolution)
+            ndsm = _timed("Fetch lidar nDSM", reference.ndsm, osm_fetch_target, resolution)
             if ndsm is not None and ndsm.shape == osm_hm.shape:
                 import cv2 as _cv2
                 bm = (~np.isnan(osm_hm)).astype(np.uint8)
@@ -351,11 +346,10 @@ def register_city_stl(
     # building footprint there to match against, so they're excluded rather
     # than compared.
     try:
-        from ..applications.cities import get_osm_semantic_masks
-        sem = _timed("Fetch OSM semantic masks", get_osm_semantic_masks,
-                     osm_fetch_target, resolution=resolution)
-        veg_mask = sem["vegetation"]
-        water_mask = sem["water"]
+        sem = _timed("Fetch OSM semantic masks", reference.semantic_masks,
+                     osm_fetch_target, resolution) or {}
+        veg_mask = sem.get("vegetation")
+        water_mask = sem.get("water")
         elevated_roadway_mask = sem.get("elevated_roadway")
     except Exception as _exc:
         logger.warning("OSM semantic masks unavailable (%s); skipping exclusion.", _exc)
@@ -371,10 +365,8 @@ def register_city_stl(
     else:
         stl_reg = _inpaint_stl_nan(mesh_to_heightmap(
             eff_stl_file, resolution=REGISTER_RES, projection="max",
-            z_axis=stl_z_axis, isotropic=True)["heightmap"])
-        osm_reg = get_osm_building_heightmap(
-            osm_fetch_target, resolution=REGISTER_RES,
-            default_height=default_height, levels_to_meters=levels_to_meters)["heightmap"]
+            z_axis=stl_z_axis, isotropic=True, row0="south")["heightmap"])
+        osm_reg = reference.building_heightmap(osm_fetch_target, REGISTER_RES)["heightmap"]
         cell_size_m_reg = cell_size_m * (float(resolution) / REGISTER_RES)
         logger.info("Registration search at %dx%d (output %dx%d); transform scaled by %.3f",
                     REGISTER_RES, REGISTER_RES, resolution, resolution,
@@ -500,7 +492,6 @@ def register_city_stl(
                     landmark["stl_row"], landmark["stl_col"], landmark["stl_dist_from_center"])
 
     # 6. Assemble report
-    region_name = city_name if isinstance(city_name, str) else f"bbox {city_name}"
     report = CityRegistrationReport(
         region_name=region_name,
         stl_file=str(stl_file),

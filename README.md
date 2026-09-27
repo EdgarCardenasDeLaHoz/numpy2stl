@@ -9,7 +9,7 @@ Convert NumPy arrays and geometric shapes into 3D mesh files (STL/OBJ/3MF) for 3
 - **Polygon Processing**: Extrude 2D polygons into 3D prisms or complex shapes
 - **Mesh Operations**: Simplification, validation, and boolean operations
 - **Optional Modules**: Advanced features for geographic data, puzzle generation, and mesh manipulation
-- **City STL Registration**: Align a city 3D model to OpenStreetMap buildings and compare heights — see [docs/registration.md](docs/registration.md) and [registration/docs/ARCHITECTURE.md](registration/docs/ARCHITECTURE.md)
+- **City STL Registration**: Align a city 3D model to a building-height raster (e.g. from OpenStreetMap) and compare heights — see [docs/registration.md](docs/registration.md) and [registration/docs/ARCHITECTURE.md](registration/docs/ARCHITECTURE.md)
 
 ## Installation
 
@@ -212,8 +212,35 @@ from numpy2stl.stl2numpy import mesh_to_heightmap  # mesh → heightmap (trimesh
 `vectorize_buildings` (mask → polygons), `burn_polygons` (polygons → raster,
 `mode="max"|"sum"|"set"`, holes kept, `bounds=` is north-up) and `fill_nan`.
 `mesh_to_heightmap(mesh_or_path, resolution | cell_size=, method="bin"|"raycast",
-row0="south"|"north")` is the one mesh → heightmap conversion; row 0 defaults to the
-mesh's min-y edge.
+row0="north"|"south")` is the one mesh → heightmap conversion; row 0 defaults to the
+mesh's max-y edge (image convention). Pass `row0="south"` for the min-y edge first, as
+the registration pipeline does (its rasters are row 0 = south).
+
+### Geo-free: no map fetching
+
+numpy2stl never fetches map data and never converts lon/lat to metres; a static
+test (`tests/test_geo_free.py`) fails if any module imports `osmnx`, `requests`,
+`pdal` or strm2stl. Registration takes the reference side as an input:
+`register_city_stl(stl_file, reference)` where `reference` implements
+`numpy2stl.registration.ReferenceSource` (building heightmap with `cell_size_m`,
+optional vegetation/water/bridge masks and nDSM, candidate frames for the centre
+search), or is a `StaticReference` over arrays you already have.
+
+The OSM and 3DEP lidar code moved to strm2stl:
+
+| Was (numpy2stl) | Now (strm2stl) |
+|---|---|
+| `applications.cities` (`get_osm_building_heightmap`, `get_osm_semantic_masks`, `get_city_bbox`, `get_city_center_point`, `estimate_bbox_from_stl`, `tight_bbox_from_extent`, `derive_scale_m_per_unit`, `get_philadelphia_heightmap`) | `city2stl.osm_raster` |
+| `applications.lidar.get_ndsm` | `city2stl.height.providers.lidar_3dep_ept.get_ndsm` |
+| `register_city_stl(stl, "City, ST")` / bbox tuple, `center=`, `tallest_m=`, `scale_m_per_unit=`, `default_height=`, `levels_to_meters=` | `city2stl.registration.register_city_stl` (same arguments) |
+| `registration.center_search.find_best_city_center` | `find_best_target` over `OSMReference.candidate_targets` |
+| `python -m numpy2stl.registration.scripts.{run_registration,benchmark_micropolitan,robustness_test}` | `python -m city2stl.registration.scripts.…` |
+
+numpy2stl cannot import strm2stl, so the old modules are not forwarding shims:
+for one release, importing `numpy2stl.applications.cities` / `.lidar` (or the old
+names from `numpy2stl.applications`) raises an `ImportError` naming the new
+location, and passing a city name to `register_city_stl` raises a `TypeError`
+saying the same.
 
 ### Installation by Feature
 
@@ -225,7 +252,7 @@ Extras are declared in `pyproject.toml` under `[project.optional-dependencies]`.
 | Image rescaling | `pip install -e ".[tools]"` | DEM preprocessing (opencv, scikit-image) |
 | Boolean operations | `pip install -e ".[boolean]"` | Combine/cut meshes |
 | Puzzle / trimesh helpers | `pip install -e ".[mesh]"` | Puzzle pieces, extrusion |
-| City STL registration | `pip install -e ".[registration]"` | OSM alignment + height comparison |
+| City STL registration | `pip install -e ".[registration]"` | Raster alignment + height comparison (OSM fetching is strm2stl's) |
 | Visualization | `pip install -e ".[viz]"` | View meshes |
 | Everything | `pip install -e ".[all]"` | All features (no viz) |
 

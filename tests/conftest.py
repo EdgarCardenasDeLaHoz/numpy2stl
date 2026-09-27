@@ -107,7 +107,7 @@ def simple_building_array():
 
 @pytest.fixture
 def osm_mock():
-    """Synthetic OSM-like heightmap dict matching cities.py return format."""
+    """Synthetic OSM-like heightmap dict (the reference-source building_heightmap format)."""
     arr = np.full((32, 32), np.nan, dtype=np.float64)
     arr[6:14, 6:14] = 18.0
     arr[18:26, 18:26] = 32.0

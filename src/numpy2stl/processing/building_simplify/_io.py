@@ -70,5 +70,5 @@ def _rasterize_mesh(mesh, z_axis: int = 2, resolution: int = 512):
     8× oversampling, row 0 = min y, no size cap or cache)."""
     from ...stl2numpy.heightmap import mesh_to_heightmap
     r = mesh_to_heightmap(mesh, resolution=resolution, z_axis=z_axis, allow_large=True,
-                          cache=False, oversampling=8)
+                          cache=False, oversampling=8, row0="south")
     return r["heightmap"], r["cell_size"]

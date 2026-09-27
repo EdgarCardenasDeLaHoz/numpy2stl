@@ -4,7 +4,7 @@ Pure functions used by more than one stage (and by the orchestrator): affine
 decomposition for the report, the landmark sanity check, interior-NaN
 inpainting of the STL heightmap, and the coarse-registration "is this locked
 onto something real" gate shared by the orchestrator's probe check and
-registration.center_search.find_best_city_center()'s per-candidate scoring.
+registration.center_search.find_best_target()'s per-candidate scoring.
 """
 
 from __future__ import annotations

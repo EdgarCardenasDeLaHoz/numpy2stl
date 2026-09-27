@@ -19,7 +19,9 @@ registration/
   compare.py         height comparison (affine fit stl_m = scale*stl + offset)
   types.py           frozen dataclasses (RegistrationResult, ComparisonResult, …)
   html_report.py     HTML assembly (sections in pipeline order)
-  center_search.py   find_best_city_center (ring search for the OSM fetch centre)
+  reference.py       ReferenceSource protocol (the OSM side is an input; numpy2stl is geo-free)
+                     + StaticReference over in-memory arrays
+  center_search.py   find_best_target (scores the source's candidate frames)
   align/
     transform.py     preprocess, apply_transform, matrix helpers
     segmentation.py  deprecated alias of numpy2stl.raster.segment / .vectorize (terrain_residual,
@@ -90,10 +92,12 @@ raster — followed by a height comparison.
 1. **STL → heightmap** — `mesh_to_heightmap(..., isotropic=True)`: square-pixel render
    (true aspect, NaN-padded to square) so a world-square building is pixel-square,
    matching the isotropic OSM raster.  Interior NaN holes filled; exterior padding kept NaN.
-2. **OSM fetch** — `get_osm_building_heightmap` (per-footprint heights from `height` tag →
-   `levels`×3.5 → `default_height`) + `get_osm_semantic_masks` (vegetation/water, to exclude
-   trees/rivers from the STL building mask).  Optional `height_source="lidar"` replaces tag
-   heights with measured 3DEP nDSM per footprint (`applications/lidar.py`).
+2. **Reference fetch** — `reference.building_heightmap` / `reference.semantic_masks` on the
+   caller's `ReferenceSource`.  For OSM (strm2stl `city2stl.registration.OSMReference` over
+   `city2stl.osm_raster`): per-footprint heights from `height` tag → `levels`×3.5 →
+   `default_height`, plus vegetation/water/bridge masks to exclude from the STL building
+   mask.  Optional `height_source="lidar"` replaces the heights with `reference.ndsm`
+   per footprint (strm2stl: 3DEP EPT nDSM, `city2stl.height.providers.lidar_3dep_ept`).
 3. **Resolution-independent search** — the registration runs at a fixed `REGISTER_RES`
    (512); the found transform's linear part (scale+rotation) is a pixel ratio, so only the
    translation is scaled to the output grid.  Identical transform at any output resolution;
@@ -162,7 +166,7 @@ raster — followed by a height comparison.
 
 | Assumption / value | Where | Risk on a new city/STL | Override |
 |---|---|---|---|
-| City centre + tallest building | `_CITY_CONFIG` (cities.py) | Only 4 cities pre-listed | `center=`, `tallest_m=`, or `scale_m_per_unit=` on `register_city_stl` / CLI `--center --tallest-m`; else the centre is **geocoded** automatically |
+| City centre + tallest building | `_CITY_CONFIG` (strm2stl `city2stl/osm_raster.py`) | Only 4 cities pre-listed | `center=`, `tallest_m=`, or `scale_m_per_unit=` on strm2stl's `city2stl.registration.register_city_stl` / CLI `--center --tallest-m`; else the centre is **geocoded** automatically |
 | Model centred on city centre | bbox + landmark check | Off-centre tiles misregister | use the complete single-piece model; pass `center=` |
 | `z_max` ⇒ tallest building | scale anchor | Cropped models lack the tallest tower | pass `tallest_m`/`scale_m_per_unit` |
 | OSM frame = 1.5× footprint | `DEFAULT_OSM_MARGIN` (config.py) | — | `config.osm_margin` |
@@ -206,8 +210,8 @@ A clean implementation (Hanning window + Reddy–Chatterji high-pass emphasis + 
 correlation; the 180° spectrum ambiguity broken by overlap correlation; an optional
 `refine_overlap` loop that masks both images to their mutual overlap and re-estimates the
 residual).  Validate with `python -m numpy2stl.registration.scripts.fourier_mellin_prototype`
-(synthetic recovery + random-crop test, no network) or `--stl … --region …` (vs the production
-path).  Unit-tested in `TestFourierMellin` (11 tests).
+(synthetic recovery + random-crop test, no network) or `--stl … --reference osm.npz` (vs the
+production path; the .npz holds `heightmap` + `cell_size_m`).  Unit-tested in `TestFourierMellin` (11 tests).
 
 - **Concept proven.**  On synthetic city rasters it recovers a known rotation+scale to **<0.1°
   / <0.01 scale**, **identically on a grid and an irregular (random-orientation) layout** — the

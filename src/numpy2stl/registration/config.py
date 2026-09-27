@@ -16,14 +16,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 # --- Geometry / fetch ------------------------------------------------------
-# OSM frame is fetched at this multiple of the STL footprint.  Larger frames
-# shrink the STL within the grid and weaken registration; 1.5x balances
+# The reference frame is requested at this multiple of the STL footprint.  Larger
+# frames shrink the STL within the grid and weaken registration; 1.5x balances
 # surrounding context against keeping the STL large enough to register.
 DEFAULT_OSM_MARGIN = 1.5
-
-# Metres per degree of latitude (spherical-earth approximation).  Longitude is
-# scaled by cos(latitude).  Used to convert the OSM degree grid to metres.
-M_PER_DEG_LAT = 111_320.0
 
 # --- Segmentation (terrain residual + building mask) -----------------------
 # Terrain top-hat opening kernel, in METRES (resolution-independent).  Wider
@@ -76,7 +72,7 @@ REGISTER_RES = 512
 # stripping roof clutter.  Larger = more aggressive flattening.
 DEFAULT_SIMPLIFY_TOL_M = 3.5
 
-# --- Center search (find_best_city_center) ----------------------------------
+# --- Center search (center_search.find_best_target) ----------------------------------
 # Minimum (peak - sweep median) margin to trust a scale-Dice / rotation-IoU peak
 # as a genuine, sharp signal rather than sweep noise.  Reuses global_search.py's
 # own internal gates verbatim (_DICE_PEAK_MARGIN, _ROT_PEAK_MARGIN in

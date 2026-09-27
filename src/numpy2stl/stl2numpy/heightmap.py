@@ -6,8 +6,9 @@ The one mesh → heightmap implementation in numpy2stl / strm2stl:
 - ``method="raycast"``  one vertical ray per cell centre (exact top surface; needs
                         trimesh's ray backend — rtree or embree)
 
-Row 0 is the mesh's min-y edge by default (``row0="south"``, what every existing
-caller expects); ``row0="north"`` returns the image-convention flip.
+Row 0 is the mesh's max-y edge by default (``row0="north"``, the image convention
+the project uses for rasters); ``row0="south"`` puts the min-y edge first, which is
+what the registration code and the building simplifier work in (they pass it).
 """
 
 from __future__ import annotations
@@ -58,7 +59,7 @@ def mesh_to_heightmap(
     *,
     method: str = "bin",
     cell_size: float | tuple[float, float] | None = None,
-    row0: str = "south",
+    row0: str = "north",
     oversampling: int = _OVERSAMPLING,
 ) -> dict:
     """
@@ -97,9 +98,9 @@ def mesh_to_heightmap(
         Cell size in mesh units, instead of ``resolution``: the grid is
         ``round(extent / cell_size)`` cells per axis (the returned ``cell_size``
         is the exact extent / count).
-    row0 : {'south', 'north'}
-        'south' (default): row 0 is the mesh's min-y edge.  'north': image
-        convention, exactly ``np.flipud`` of the 'south' result.
+    row0 : {'north', 'south'}
+        'north' (default): image convention, row 0 is the mesh's max-y edge.
+        'south': row 0 is the min-y edge, exactly ``np.flipud`` of 'north'.
     oversampling : int
         Surface samples per output cell for ``method='bin'``.
 
@@ -132,7 +133,8 @@ def mesh_to_heightmap(
     cache = cache and is_path
     if cache:
         # Cache check — the 3MF/STL load + surface sampling is the slow step.  The
-        # key only grows for non-default options, so existing cache files stay valid.
+        # key only grows for options other than the original ones (bin, south), so
+        # existing cache files stay valid.
         extra = ""
         if (method, cell_size, row0, oversampling) != ("bin", None, "south", _OVERSAMPLING):
             extra = f"|m{method}|c{cell_size}|{row0}|o{oversampling}"

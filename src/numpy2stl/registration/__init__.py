@@ -1,10 +1,13 @@
 """numpy2stl.registration — city STL to OSM image registration pipeline.
 
-Quick start::
+Quick start (the reference heightmap is an input; numpy2stl fetches nothing)::
 
-    from numpy2stl.registration import register_city_stl
-    report = register_city_stl("philadelphia.stl", "Philadelphia, PA, USA",
-                                out_dir="./report")
+    from numpy2stl.registration import StaticReference, register_city_stl
+    ref = StaticReference(osm_heightmap, cell_size_m=2.0, name="philadelphia")
+    report = register_city_stl("philadelphia.stl", ref, out_dir="./report")
+
+To register against a city name or bbox (OSM fetched for you) use strm2stl's
+``city2stl.registration.register_city_stl``.
 
 Step-by-step::
 
@@ -15,7 +18,7 @@ Step-by-step::
 This package `__init__` is a thin façade: the orchestrator and its stage helpers
 live in `pipeline.py`; the comparison, transforms, report, types and the OSM
 centre search live in their own modules (`compare`, `align`, `html_report`,
-`types`, `center_search`).  Generic mask / polygon helpers are in `numpy2stl.raster`.
+`types`, `center_search`); the reference-source protocol is in `reference`.  Generic mask / polygon helpers are in `numpy2stl.raster`.
 """
 from __future__ import annotations
 
@@ -23,10 +26,13 @@ from .align import apply_transform, register
 from .compare import compare
 from .html_report import write_registration_report
 from .pipeline import RUNS_DIR, register_city_stl
+from .reference import ReferenceSource, StaticReference
 from .types import CityRegistrationReport, ComparisonResult, RegistrationResult
 
 __all__ = [
     "register_city_stl",
+    "ReferenceSource",
+    "StaticReference",
     "register",
     "apply_transform",
     "compare",

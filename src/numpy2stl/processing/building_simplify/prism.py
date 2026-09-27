@@ -62,7 +62,7 @@ def prism_decompose(
 
     # Non-isotropic render → simple pixel↔world mapping (no NaN padding).
     r = mesh_to_heightmap(file_path, resolution=resolution, projection="max",
-                          z_axis=z_axis, isotropic=False, cache=False)
+                          z_axis=z_axis, isotropic=False, cache=False, row0="south")
     hm = r["heightmap"]
     (x_min, _x_max), (y_min, _y_max) = r["bounds"]["x"], r["bounds"]["y"]
     cell_x, cell_y = r["cell_size"]

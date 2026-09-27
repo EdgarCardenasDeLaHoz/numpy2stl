@@ -1,14 +1,20 @@
 # numpy2stl — City STL Registration
 
-Register a city 3D mesh against OpenStreetMap building data to find geographic
-alignment and compare dataset quality.
+Register a city 3D mesh against a building-height raster (normally OpenStreetMap)
+to find the alignment and compare dataset quality.
+
+numpy2stl is geo-free: it does not fetch OSM. `register_city_stl(stl_file, reference)`
+takes a `numpy2stl.registration.ReferenceSource` (or a `StaticReference` over arrays
+you already have). To register against a city name or bbox, use strm2stl's
+`city2stl.registration.register_city_stl(stl_file, city_name, ...)`, which builds the
+OSM source (`city2stl.osm_raster`) and takes the arguments shown below.
 
 > **Architecture & module map:** see
 > [`registration/docs/ARCHITECTURE.md`](../registration/docs/ARCHITECTURE.md) for the
 > subpackage layout, the pipeline stages, the key algorithm decisions, and the
 > hardcode/assumption audit (how to run on a city not in the built-in config).
 
-**Works on any city.** Cities not in the built-in config geocode their centre
+**Works on any city** (strm2stl wrapper). Cities not in the built-in config geocode their centre
 automatically; pass `tallest_m=` or `scale_m_per_unit=` (CLI `--tallest-m` /
 `--scale-m-per-unit`) for a tight, well-scaled OSM fetch, or `center=` / `--center
 LAT,LON` to set the downtown point explicitly.
@@ -18,8 +24,7 @@ LAT,LON` to set the downtown point explicitly.
 ## Quick Start
 
 ```python
-from numpy2stl.registration import register_city_stl
-from numpy2stl.registration.html_report import write_registration_report
+from city2stl.registration import register_city_stl   # strm2stl: fetches OSM
 
 # Full pipeline + write HTML report to ./report/
 report = register_city_stl(
@@ -43,18 +48,28 @@ print(f"Bias: {report.comparison.bias:+.1f} m  (+ = STL taller than OSM)")
 print(f"Coverage: {report.comparison.coverage_pct:.1f}%")
 ```
 
+Without strm2stl, pass the reference raster yourself (row 0 = south, NaN = no
+building):
+
+```python
+from numpy2stl.registration import StaticReference, register_city_stl
+
+ref = StaticReference(osm_heightmap, cell_size_m=2.0, name="philadelphia")
+report = register_city_stl("philadelphia.stl", ref, resolution=512, out_dir="./report")
+```
+
 ---
 
 ## Step-by-Step Usage
 
 ```python
 from numpy2stl.stl2numpy import mesh_to_heightmap
-from numpy2stl.applications.cities import get_osm_building_heightmap
+from city2stl.osm_raster import get_osm_building_heightmap   # strm2stl
 from numpy2stl.registration.align import register, apply_transform
 from numpy2stl.registration.compare import compare
 
 # 1. STL → 2D heightmap (arbitrary coordinates, unknown scale)
-stl = mesh_to_heightmap("city.stl", resolution=512, projection="max")
+stl = mesh_to_heightmap("city.stl", resolution=512, projection="max", row0="south")
 
 # 2. OSM building heights for the same city
 osm = get_osm_building_heightmap("Philadelphia, PA, USA", resolution=512)
@@ -84,10 +99,10 @@ from numpy2stl.registration.types import (
 
 ---
 
-## Named Cities
+## Named Cities (strm2stl `city2stl.osm_raster`)
 
 ```python
-from numpy2stl.applications.cities import get_philadelphia_heightmap
+from city2stl.osm_raster import get_philadelphia_heightmap
 
 osm = get_philadelphia_heightmap(resolution=512)
 ```
@@ -96,7 +111,7 @@ Adding more cities: copy the `get_philadelphia_heightmap` pattern with a
 hardcoded `(N, S, E, W)` bbox, or use any city name string:
 
 ```python
-from numpy2stl.applications.cities import get_osm_building_heightmap
+from city2stl.osm_raster import get_osm_building_heightmap
 
 osm = get_osm_building_heightmap("Seattle, WA, USA", resolution=512)
 ```
@@ -107,7 +122,12 @@ Currently named wrappers: `get_philadelphia_heightmap`.
 
 ## Parameters Reference
 
-### `register_city_stl(stl_file, city_name, ...)`
+### `register_city_stl(stl_file, city_name, ...)` (strm2stl `city2stl.registration`)
+
+`city_name`, `default_height`, `levels_to_meters`, `center`, `tallest_m` and
+`scale_m_per_unit` build the OSM source; everything else is passed to numpy2stl's
+`register_city_stl(stl_file, reference, ...)`, which also takes `height_source`
+(`"osm"` / `"lidar"`), `center_search` and `region_name`.
 
 | Parameter | Default | Description |
 |---|---|---|

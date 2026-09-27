@@ -10,11 +10,14 @@ Two ways to exercise `align.fourier_mellin.fourier_mellin_register`:
 
        python -m numpy2stl.registration.scripts.fourier_mellin_prototype
 
-2. REAL STL/OSM (needs the registration extras + network):  compare the
-   Fourier–Mellin (angle, scale) against the production gradient+sweep result.
+2. REAL STL/OSM:  compare the Fourier–Mellin (angle, scale) against the
+   production gradient+sweep result.  numpy2stl does not fetch OSM, so the
+   reference is an .npz holding ``heightmap`` (row 0 = south, NaN = no building)
+   and ``cell_size_m`` (e.g. saved from strm2stl's
+   ``city2stl.osm_raster.get_osm_building_heightmap``).
 
        python -m numpy2stl.registration.scripts.fourier_mellin_prototype \\
-           --stl path/to/city.stl --region "Boston, MA, USA"
+           --stl path/to/city.stl --reference boston_osm.npz
 """
 from __future__ import annotations
 
@@ -153,19 +156,14 @@ def _run_crop() -> int:
     return 0
 
 
-def _run_real(stl: str, region: str, resolution: int, z_axis: int) -> int:
-    from numpy2stl.registration import register_city_stl
+def _run_real(stl: str, reference: str, resolution: int, z_axis: int) -> int:
+    from numpy2stl.registration import StaticReference, register_city_stl
 
-    parts = region.split(",")
-    city = region
-    if len(parts) == 4:
-        try:
-            city = tuple(float(x) for x in parts)
-        except ValueError:
-            pass
+    data = np.load(reference)
+    ref = StaticReference(data["heightmap"], float(data["cell_size_m"]), name=reference)
 
     print("Production registration (gradient + scale sweep)…")
-    rep = register_city_stl(stl_file=stl, city_name=city, resolution=resolution,
+    rep = register_city_stl(stl_file=stl, reference=ref, resolution=resolution,
                             stl_z_axis=z_axis, out_dir=False)
     prod_scale = rep.registration.scale
     prod_rot = rep.registration.angle_deg
@@ -201,15 +199,15 @@ def main(argv=None) -> int:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--stl", help="STL/3mf path (real-data mode)")
-    p.add_argument("--region", help="city name or 'N,S,E,W' bbox (real-data mode)")
+    p.add_argument("--reference", help=".npz with heightmap + cell_size_m (real-data mode)")
     p.add_argument("--resolution", type=int, default=512)
     p.add_argument("--z-axis", type=int, default=2)
     p.add_argument("--crop", action="store_true",
                    help="run only the random-crop / partial-overlap recovery test")
     args = p.parse_args(argv)
 
-    if args.stl and args.region:
-        return _run_real(args.stl, args.region, args.resolution, args.z_axis)
+    if args.stl and args.reference:
+        return _run_real(args.stl, args.reference, args.resolution, args.z_axis)
     if args.crop:
         return _run_crop()
     _run_synthetic()

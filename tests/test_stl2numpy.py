@@ -171,23 +171,26 @@ class TestMeshToHeightmapMethods:
         assert diff.min() > -1e-6
         assert diff.max() <= 0.5 + 1e-6
 
-    def test_default_row0_is_min_y(self):
+    def test_default_row0_is_north(self):
         import trimesh
 
         from numpy2stl.stl2numpy import mesh_to_heightmap
-        # A tall block in the +y half: with row0="south" it lands in the last rows.
+        # A tall block in the +y half: by default (row0="north") it lands in the first
+        # rows; with row0="south" in the last.
         a = trimesh.creation.box(extents=(4, 4, 1))
         b = trimesh.creation.box(extents=(4, 2, 3))
         b.apply_translation((0, 1, 1))
         mesh = trimesh.util.concatenate([a, b])
         for method in ("bin", "raycast"):
-            hm = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method)["heightmap"]
-            assert hm[-1].mean() > hm[0].mean()
-            north = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method,
-                                      row0="north")
+            north = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method)
             assert north["row0"] == "north"
+            assert north["heightmap"][0].mean() > north["heightmap"][-1].mean()
+            south = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method,
+                                      row0="south")
+            assert south["row0"] == "south"
+            assert south["heightmap"][-1].mean() > south["heightmap"][0].mean()
             if method == "raycast":
-                np.testing.assert_array_equal(north["heightmap"], np.flipud(hm))
+                np.testing.assert_array_equal(north["heightmap"], np.flipud(south["heightmap"]))
 
     def test_cell_size(self):
         from numpy2stl.stl2numpy import mesh_to_heightmap

@@ -1,6 +1,6 @@
 """Where numpy2stl writes caches and reports, defined once.
 
-    NUMPY2STL_CACHE    fetch/compute caches (OSM, nDSM, STL heightmaps).
+    NUMPY2STL_CACHE    compute caches (STL heightmaps).
                        Default: registration/runs/ inside the package tree, gitignored.
     NUMPY2STL_REPORTS  generated registration reports.
                        Default: the shared, gitignored Code/_reports/ beside the repos.

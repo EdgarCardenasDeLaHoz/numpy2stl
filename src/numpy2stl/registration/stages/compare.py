@@ -181,7 +181,7 @@ def _run_comparison(stl_hm, osm_hm, reg_result, *, cell_size_m, height_scale,
             det_res = int(resolution * detect_factor)
             stl_hi = _inpaint_stl_nan(mesh_to_heightmap(
                 eff_stl_file, resolution=det_res, projection="max",
-                z_axis=stl_z_axis, isotropic=True)["heightmap"])
+                z_axis=stl_z_axis, isotropic=True, row0="south")["heightmap"])
             T_hi = reg_result.transform.copy()
             T_hi[0, 2] *= detect_factor
             T_hi[1, 2] *= detect_factor

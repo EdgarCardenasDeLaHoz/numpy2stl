@@ -12,13 +12,14 @@ from ._common import _inpaint_stl_nan
 logger = logging.getLogger(__name__)
 
 
-def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit, stl_hm,
+def _simplify_stage(stl_file, m_per_unit, stl_hm,
                     *, simplify_mode, simplify_mesh, simplify_tol_m, save_simplified,
                     decimation_curve, resolution, stl_z_axis, mesh_to_heightmap, timed):
     """Stage 0 — optional mesh simplification (decimate | prism).
 
     The deviation budget is in METRES but the mesh is in its own units, so it is
-    converted via the model scale (tol_units = simplify_tol_m / m_per_unit).
+    converted via the model scale (tol_units = simplify_tol_m / m_per_unit, from the
+    reference source; None = unknown, budget taken as mesh units).
     "decimate" replaces `eff_stl_file` + re-renders `stl_hm`; "prism" leaves the
     registration mesh alone (base-plate anchor) and produces a prism heightmap +
     footprint polygons for the COMPARISON.  Returns an effects dict; on any failure
@@ -34,9 +35,6 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
         import os as _os
         import tempfile
 
-        from ...applications.cities import derive_scale_m_per_unit
-        m_per_unit = derive_scale_m_per_unit(
-            city_name, stl_z_max, tallest_m=tallest_m, scale_m_per_unit=scale_m_per_unit)
         if not m_per_unit or m_per_unit <= 0:
             m_per_unit = 1.0
             logger.warning("Simplify: no scale anchor; treating deviation budget "
@@ -66,7 +64,7 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
                 # prism model (ground filled flat, NaN→0) feeds the comparison only.
                 _raw = timed("Re-render prism heightmap", mesh_to_heightmap, out_simpl,
                              resolution=resolution, projection="max", z_axis=stl_z_axis,
-                             isotropic=True, cache=False)["heightmap"]
+                             isotropic=True, cache=False, row0="south")["heightmap"]
                 out["prism_hm_render"] = np.nan_to_num(_raw, nan=0.0)
         else:  # "decimate"
             from ...processing.building_simplify import simplify_building_mesh
@@ -91,7 +89,7 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
                 out["stl_hm"] = _inpaint_stl_nan(timed(
                     "Re-render simplified heightmap", mesh_to_heightmap, out_simpl,
                     resolution=resolution, projection="max", z_axis=stl_z_axis,
-                    isotropic=True)["heightmap"])
+                    isotropic=True, row0="south")["heightmap"])
                 if decimation_curve:
                     try:
                         from ...io.readers import load_trimesh

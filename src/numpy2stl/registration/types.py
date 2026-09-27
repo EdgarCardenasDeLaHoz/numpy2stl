@@ -77,9 +77,9 @@ class CityRegistrationReport:
     registration: RegistrationResult
     comparison: ComparisonResult
     step_timings: list              # list[tuple[str, float]] — [(step_name, wall_sec), ...]
-    osm_bbox: tuple | None = None   # (N, S, E, W) actually used for the OSM fetch — may be a
-                                     # tight bbox from estimate_bbox_from_stl(), not the full
-                                     # city_name geocode a caller may have used separately
+    osm_bbox: tuple | None = None   # reference bounds as (y1, y0, x1, x0) — for OSM the
+                                     # (N, S, E, W) actually fetched, possibly a tight bbox
+                                     # rather than the full city a caller geocoded separately
     cell_size_m: float | None = None  # metres/pixel of stl_heightmap/osm_heightmap (the report-
                                        # resolution grid) — NOT the search-resolution grid's cell
                                        # size (cell_size_m_reg); pass this to building_mask/
@@ -115,8 +115,8 @@ class CityRegistrationReport:
     _decimation_sweep: object = None        # [{ratio, faces, hausdorff_units, hausdorff_m}, ...]
     _prism_stats: object = None             # PrismStats-as-dict (simplify_mode="prism")
     _center_search: dict | None = None      # {"probe": _is_locked_registration() dict | None,
-                                             #  "search": find_best_city_center() dict | None}
-                                             # — None when center_search="never" or city_name
-                                             # wasn't a string (bbox tuple; no geocoding to probe).
+                                             #  "search": find_best_target() dict | None}
+                                             # — None when center_search="never" or the
+                                             # reference frame was not anchored to the STL.
                                              # "probe" is None only when the probe itself raised
                                              # (search then ran unconditionally as a fallback).
