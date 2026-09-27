@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 
-from ..io.readers import _load_trimesh_mesh
+from ..io.readers import load_trimesh
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ def decimate_mesh(
     vertices : ndarray, shape (N, 3)
     faces    : ndarray of int, shape (M, 3)
     """
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
     original_faces = len(mesh.faces)
 
     if target_faces is None:

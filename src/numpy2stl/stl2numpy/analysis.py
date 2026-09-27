@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 
-from ..io.readers import _load_trimesh_mesh
+from ..io.readers import load_trimesh
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +34,7 @@ def get_mesh_properties(file_path: str) -> dict:
         'is_winding_consistent': bool
         'euler_number'        : int
     """
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
 
     bounds = mesh.bounds  # (2, 3)
 
@@ -86,7 +86,7 @@ def detect_orientation(file_path: str) -> dict:
         'confidence'    : float  (0–1, higher = more certain)
         'method'        : str  explanation of which heuristic was used
     """
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
 
     extents = mesh.extents  # [dx, dy, dz]
 

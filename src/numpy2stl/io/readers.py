@@ -10,11 +10,11 @@ except ImportError:
 
 import numpy as np
 
-__all__ = ["load_mesh"]
+__all__ = ["load_mesh", "load_trimesh"]
 
 
-def _load_trimesh_mesh(file_path: str):
-    """Return a trimesh.Trimesh object (internal use by stl2numpy)."""
+def load_trimesh(file_path: str):
+    """Load an STL/OBJ/3MF/PLY file as one ``trimesh.Trimesh`` (scenes are concatenated)."""
     if not HAS_TRIMESH:
         raise ImportError(
             "trimesh is required. Install with: pip install trimesh"
@@ -53,5 +53,9 @@ def load_mesh(file_path: str):
     vertices : ndarray, shape (N, 3)
     faces    : ndarray of int, shape (M, 3)
     """
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
     return np.array(mesh.vertices), np.array(mesh.faces)
+
+
+# One-release alias for the old private name.
+_load_trimesh_mesh = load_trimesh

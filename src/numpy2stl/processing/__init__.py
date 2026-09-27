@@ -1,4 +1,5 @@
 from ..core.solid import simplify_surface
+from .decimate import decimate_to_tolerance, heightfield_tin
 from .extrusion import (
     extrude_solid_polygon,
     make_hollow_cap,
@@ -11,6 +12,9 @@ from .simplify import simplify_mesh_surfaces
 from .verify import check_model_status
 
 __all__ = [
+    # decimate
+    "heightfield_tin",
+    "decimate_to_tolerance",
     # simplify
     "simplify_mesh_surfaces",
     "simplify_surface",

@@ -8,6 +8,7 @@ from typing import NamedTuple
 
 import numpy as np
 
+from ..decimate import _symmetric_hausdorff, decimate_to_tolerance  # noqa: F401
 from ._io import _save_mesh, _save_prism_lod
 
 logger = logging.getLogger(__name__)
@@ -21,62 +22,6 @@ class SimplifyStats(NamedTuple):
     deviation_tol_m: float
     flattened_buildings: int    # roofs levelled in Stage 2 (0 if flatten skipped)
     backend: str                # "trimesh+pymeshlab" | "none" (libs missing)
-
-
-def _symmetric_hausdorff(mesh_a, mesh_b, n_samples: int = 20000) -> float:
-    """Symmetric Hausdorff distance (max of the two directed surface distances).
-
-    Sampled on each surface and measured to the other with trimesh's nearest-
-    surface query — robust and version-independent (pymeshlab's own Hausdorff
-    sampling is finicky), in the mesh's native units.
-    """
-    def _directed(src, dst) -> float:
-        try:
-            pts = src.sample(n_samples)
-        except Exception:
-            pts = np.asarray(src.vertices)
-        if len(pts) == 0:
-            return 0.0
-        _, dist, _ = dst.nearest.on_surface(pts)
-        return float(np.max(dist)) if len(dist) else 0.0
-
-    return max(_directed(mesh_a, mesh_b), _directed(mesh_b, mesh_a))
-
-
-def decimate_to_tolerance(
-    mesh,
-    deviation_tol: float,
-    min_ratio: float = 0.02,
-    n_iter: int = 7,
-    n_samples: int = 20000,
-):
-    """Most aggressive quadric decimation whose symmetric Hausdorff to `mesh`
-    stays ≤ `deviation_tol` (mesh units).
-
-    Binary-searches the kept-face ratio in [min_ratio, 1.0]: smaller ratio = more
-    decimation.  Returns ``(decimated_mesh, kept_ratio, achieved_hausdorff)``.
-    """
-    from ...stl2numpy.reduction import decimate_trimesh
-
-    f0 = len(mesh.faces)
-    # lo = most aggressive (smallest ratio), hi = safest (no decimation).
-    lo, hi = float(min_ratio), 1.0
-    best_mesh, best_ratio, best_h = mesh, 1.0, 0.0
-
-    for _ in range(n_iter):
-        mid = 0.5 * (lo + hi)
-        cand = decimate_trimesh(mesh, int(mid * f0), preserve=True)
-        h = _symmetric_hausdorff(mesh, cand, n_samples=n_samples)
-        if h <= deviation_tol:
-            # within budget — accept and push for MORE decimation (lower ratio)
-            best_mesh, best_ratio, best_h = cand, len(cand.faces) / f0, h
-            hi = mid
-        else:
-            # exceeded budget — back off (keep more faces)
-            lo = mid
-    logger.info("decimate_to_tolerance: %d -> %d faces (%.1f%%), hausdorff=%.3f (tol %.3f)",
-                f0, len(best_mesh.faces), 100.0 * best_ratio, best_h, deviation_tol)
-    return best_mesh, best_ratio, best_h
 
 
 def decimation_sweep(
@@ -170,12 +115,12 @@ def simplify_building_mesh(
     try:
         import trimesh  # noqa: F401
 
-        from ...io.readers import _load_trimesh_mesh
+        from ...io.readers import load_trimesh
     except Exception:
         logger.warning("simplify_building_mesh: trimesh unavailable; returning original mesh.")
         return None, None, SimplifyStats(0, 0, 1.0, 0.0, deviation_tol_m, 0, "none")
 
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
     f0 = len(mesh.faces)
     try:
         simp, ratio, haus = decimate_to_tolerance(mesh, deviation_tol_m)

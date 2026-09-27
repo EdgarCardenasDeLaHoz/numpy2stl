@@ -6,7 +6,7 @@ import logging
 
 import numpy as np
 
-from ..io.readers import _load_trimesh_mesh
+from ..io.readers import load_trimesh
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +42,7 @@ def mesh_to_pointcloud(
     except ImportError as err:
         raise ImportError("trimesh is required. Install with: pip install trimesh") from err
 
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
 
     if method == "vertices":
         points = np.array(mesh.vertices, dtype=np.float64)

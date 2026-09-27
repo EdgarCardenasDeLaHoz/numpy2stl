@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 
 from .._paths import CACHE_ROOT
-from ..io.readers import _load_trimesh_mesh
+from ..io.readers import load_trimesh
 
 logger = logging.getLogger(__name__)
 
@@ -101,7 +101,7 @@ def mesh_to_heightmap(
             "projection": str(d["projection"]),
         }
 
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
 
     if len(mesh.faces) == 0:
         raise ValueError(f"Mesh at {file_path!r} has no faces.")

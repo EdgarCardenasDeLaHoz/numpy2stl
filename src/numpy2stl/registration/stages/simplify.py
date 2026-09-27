@@ -94,11 +94,11 @@ def _simplify_stage(stl_file, city_name, stl_z_max, tallest_m, scale_m_per_unit,
                     isotropic=True)["heightmap"])
                 if decimation_curve:
                     try:
-                        from ...io.readers import _load_trimesh_mesh
+                        from ...io.readers import load_trimesh
                         from ...processing.building_simplify import decimation_sweep
                         out["decimation_sweep"] = timed(
                             "Decimation sweep (curve)", decimation_sweep,
-                            _load_trimesh_mesh(str(stl_file)), m_per_unit=m_per_unit)
+                            load_trimesh(str(stl_file)), m_per_unit=m_per_unit)
                     except Exception as _exc:
                         logger.warning("Decimation sweep failed (%s).", _exc)
     except Exception as _exc:

@@ -7,7 +7,7 @@ import logging
 
 import numpy as np
 
-from ..io.readers import _load_trimesh_mesh
+from ..io.readers import load_trimesh
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def slice_mesh(
     if importlib.util.find_spec("trimesh") is None:
         raise ImportError("trimesh is required. Install with: pip install trimesh")
 
-    mesh = _load_trimesh_mesh(file_path)
+    mesh = load_trimesh(file_path)
     bounds = mesh.bounds  # (2, 3)
 
     z_min = float(bounds[0, z_axis])

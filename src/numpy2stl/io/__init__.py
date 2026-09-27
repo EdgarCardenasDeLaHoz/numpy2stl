@@ -1,4 +1,4 @@
-from .readers import load_mesh
+from .readers import load_mesh, load_trimesh
 from .writers import write3MF, writeOBJ, writeSTL
 
 __all__ = [
@@ -6,4 +6,5 @@ __all__ = [
     "writeOBJ",
     "write3MF",
     "load_mesh",
+    "load_trimesh",
 ]
