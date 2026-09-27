@@ -1,3 +1,4 @@
+from ..core.solid import simplify_surface
 from .extrusion import (
     extrude_solid_polygon,
     make_hollow_cap,
@@ -6,20 +7,13 @@ from .extrusion import (
     prism_wall_vertices,
     robust_triangulate,
 )
-from .simplify import (
-    calculate_areas_of_triangles_list,
-    simplify_mesh_surfaces,
-    simplify_surface,
-    triangle_area_3d,
-)
+from .simplify import simplify_mesh_surfaces
 from .verify import check_model_status
 
 __all__ = [
     # simplify
     "simplify_mesh_surfaces",
     "simplify_surface",
-    "triangle_area_3d",
-    "calculate_areas_of_triangles_list",
     # verify
     "check_model_status",
     # extrusion

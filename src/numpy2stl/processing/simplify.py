@@ -16,8 +16,6 @@ import triangle as tr
 from scipy.sparse import coo_matrix
 from scipy.sparse.csgraph import connected_components
 
-from ..core.polygon import triangulate_polygon
-
 logger = logging.getLogger(__name__)
 
 
@@ -413,37 +411,3 @@ def _sorted_lookup(sorted_keys, queries):
 def _unmatched(F, nv):
     """Half-edges (``3f+i``) without a proper twin."""
     return _twins(F.ravel(), F[:, [1, 2, 0]].ravel(), nv) < 0
-
-
-# -----------------------------
-# PERIMETER TRIANGULATION
-# -----------------------------
-def simplify_surface(vertices, perimeters, normal=None):
-    """ """
-    if normal is None:
-        normal = np.array([0, 0, 1])
-
-    sub_verts = vertices[np.concatenate(perimeters)]
-    sub_peri = []
-    end = 0
-    for p in perimeters:
-        sub_peri.append(np.arange(len(p)) + end)
-        end += len(p)
-
-    _, sub_faces = triangulate_polygon(sub_verts, sub_peri)
-    faces = np.concatenate(perimeters)[sub_faces]
-
-    return sub_verts, faces
-
-
-def triangle_area_3d(p1, p2, p3):
-    vector1 = np.array(p2) - np.array(p1)
-    vector2 = np.array(p3) - np.array(p1)
-    cross_product = np.cross(vector1, vector2)
-    area = 0.5 * np.linalg.norm(cross_product)
-    return area
-
-
-def calculate_areas_of_triangles_list(triangles_list):
-    areas = np.sum([triangle_area_3d(p1, p2, p3) for p1, p2, p3 in triangles_list])
-    return areas
