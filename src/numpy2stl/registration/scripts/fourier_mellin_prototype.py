@@ -13,7 +13,7 @@ Two ways to exercise `align.fourier_mellin.fourier_mellin_register`:
 2. REAL STL/OSM:  compare the Fourier–Mellin (angle, scale) against the
    production gradient+sweep result.  numpy2stl does not fetch OSM, so the
    reference is an .npz holding ``heightmap`` (row 0 = south, NaN = no building)
-   and ``cell_size_m`` (e.g. saved from strm2stl's
+   and ``cell_size_m`` (e.g. saved from map2stl's
    ``city2stl.osm_raster.get_osm_building_heightmap``).
 
        python -m numpy2stl.registration.scripts.fourier_mellin_prototype \\

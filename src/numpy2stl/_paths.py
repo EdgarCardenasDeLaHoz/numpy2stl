@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 
 _PACKAGE = Path(__file__).resolve().parent            # src/numpy2stl/
-_WORKSPACE = _PACKAGE.parents[2]                      # Code/ (holds numpy2stl/ and strm2stl/)
+_WORKSPACE = _PACKAGE.parents[2]                      # Code/ (holds numpy2stl/ and map2stl/)
 
 CACHE_ROOT = Path(os.environ.get("NUMPY2STL_CACHE") or _PACKAGE / "registration" / "runs")
 REPORTS_ROOT = Path(os.environ.get("NUMPY2STL_REPORTS") or _WORKSPACE / "_reports")

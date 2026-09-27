@@ -6,7 +6,7 @@ Quick start (the reference heightmap is an input; numpy2stl fetches nothing)::
     ref = StaticReference(osm_heightmap, cell_size_m=2.0, name="philadelphia")
     report = register_city_stl("philadelphia.stl", ref, out_dir="./report")
 
-To register against a city name or bbox (OSM fetched for you) use strm2stl's
+To register against a city name or bbox (OSM fetched for you) use map2stl's
 ``city2stl.registration.register_city_stl``.
 
 Step-by-step::

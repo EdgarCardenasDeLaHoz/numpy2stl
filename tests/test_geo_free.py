@@ -1,6 +1,6 @@
 """numpy2stl is geo-free: no module may fetch map data (F-ARCH decision 2026-09-26).
 
-OSM (osmnx / Overpass), HTTP clients and point-cloud readers live in strm2stl's
+OSM (osmnx / Overpass), HTTP clients and point-cloud readers live in map2stl's
 city2stl; this scans every numpy2stl source file, including function-local imports.
 """
 import ast
@@ -10,7 +10,7 @@ import pytest
 
 import numpy2stl
 
-FORBIDDEN = {"osmnx", "requests", "pdal", "py3dep", "urllib", "httpx", "overpy", "strm2stl",
+FORBIDDEN = {"osmnx", "requests", "pdal", "py3dep", "urllib", "httpx", "overpy", "map2stl",
              "city2stl", "geo2stl", "app"}
 SRC = Path(numpy2stl.__file__).parent
 
@@ -33,12 +33,12 @@ def test_no_module_imports_network_or_geo_fetchers():
 
 @pytest.mark.parametrize("module", ["numpy2stl.applications.cities",
                                     "numpy2stl.applications.lidar"])
-def test_removed_geo_modules_point_at_strm2stl(module):
+def test_removed_geo_modules_point_at_map2stl(module):
     import importlib
     with pytest.raises(ImportError, match="city2stl"):
         importlib.import_module(module)
 
 
-def test_moved_names_point_at_strm2stl():
+def test_moved_names_point_at_map2stl():
     with pytest.raises(ImportError, match="city2stl.osm_raster"):
         from numpy2stl.applications import get_osm_building_heightmap  # noqa: F401

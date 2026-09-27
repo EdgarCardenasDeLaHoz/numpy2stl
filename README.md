@@ -25,7 +25,7 @@ pip install -e ".[all]"     # tools, boolean, geo, mesh, registration extras
 ```
 
 Within the 3D Maps project it is installed editable into the shared
-`~/.venvs/strm2stl` venv by strm2stl's `scripts/setup-venv.ps1`.
+`~/.venvs/map2stl` venv by map2stl's `scripts/setup-venv.ps1`.
 
 ## Quick Start
 
@@ -220,15 +220,15 @@ the registration pipeline does (its rasters are row 0 = south).
 
 numpy2stl never fetches map data and never converts lon/lat to metres; a static
 test (`tests/test_geo_free.py`) fails if any module imports `osmnx`, `requests`,
-`pdal` or strm2stl. Registration takes the reference side as an input:
+`pdal` or map2stl. Registration takes the reference side as an input:
 `register_city_stl(stl_file, reference)` where `reference` implements
 `numpy2stl.registration.ReferenceSource` (building heightmap with `cell_size_m`,
 optional vegetation/water/bridge masks and nDSM, candidate frames for the centre
 search), or is a `StaticReference` over arrays you already have.
 
-The OSM and 3DEP lidar code moved to strm2stl:
+The OSM and 3DEP lidar code moved to map2stl:
 
-| Was (numpy2stl) | Now (strm2stl) |
+| Was (numpy2stl) | Now (map2stl) |
 |---|---|
 | `applications.cities` (`get_osm_building_heightmap`, `get_osm_semantic_masks`, `get_city_bbox`, `get_city_center_point`, `estimate_bbox_from_stl`, `tight_bbox_from_extent`, `derive_scale_m_per_unit`, `get_philadelphia_heightmap`) | `city2stl.osm_raster` |
 | `applications.lidar.get_ndsm` | `city2stl.height.providers.lidar_3dep_ept.get_ndsm` |
@@ -236,7 +236,7 @@ The OSM and 3DEP lidar code moved to strm2stl:
 | `registration.center_search.find_best_city_center` | `find_best_target` over `OSMReference.candidate_targets` |
 | `python -m numpy2stl.registration.scripts.{run_registration,benchmark_micropolitan,robustness_test}` | `python -m city2stl.registration.scripts.…` |
 
-numpy2stl cannot import strm2stl, so the old modules are not forwarding shims:
+numpy2stl cannot import map2stl, so the old modules are not forwarding shims:
 for one release, importing `numpy2stl.applications.cities` / `.lidar` (or the old
 names from `numpy2stl.applications`) raises an `ImportError` naming the new
 location, and passing a city name to `register_city_stl` raises a `TypeError`
@@ -252,7 +252,7 @@ Extras are declared in `pyproject.toml` under `[project.optional-dependencies]`.
 | Image rescaling | `pip install -e ".[tools]"` | DEM preprocessing (opencv, scikit-image) |
 | Boolean operations | `pip install -e ".[boolean]"` | Combine/cut meshes |
 | Puzzle / trimesh helpers | `pip install -e ".[mesh]"` | Puzzle pieces, extrusion |
-| City STL registration | `pip install -e ".[registration]"` | Raster alignment + height comparison (OSM fetching is strm2stl's) |
+| City STL registration | `pip install -e ".[registration]"` | Raster alignment + height comparison (OSM fetching is map2stl's) |
 | Visualization | `pip install -e ".[viz]"` | View meshes |
 | Everything | `pip install -e ".[all]"` | All features (no viz) |
 
@@ -317,7 +317,7 @@ MIT License (see LICENSE file)
 
 ## Related Projects
 
-- **strm2stl**: Geographic terrain mesh generation from SRTM/DEM data
+- **map2stl**: Geographic terrain mesh generation from SRTM/DEM data
 - **geo2stl**: Geographic data processing for 3D mapping
 
 ## Credits

@@ -3,7 +3,7 @@
 numpy2stl is geo-free: it never fetches map data and never converts lon/lat to
 metres.  The caller passes ``register_city_stl`` a *reference source* that
 produces the building heightmap (and optional exclusion masks / measured
-heights) on demand, at whatever resolution a stage asks for.  strm2stl's
+heights) on demand, at whatever resolution a stage asks for.  map2stl's
 ``city2stl.registration.OSMReference`` fetches these from OpenStreetMap;
 ``StaticReference`` serves arrays you already have.
 

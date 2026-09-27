@@ -8,7 +8,7 @@ façade that re-exports the public entry points.  Import via the package::
 
 The reference side (OSM buildings, masks, nDSM) comes from a
 ``reference.ReferenceSource`` passed in by the caller; numpy2stl fetches nothing
-and knows no geography.  strm2stl's ``city2stl.registration.register_city_stl``
+and knows no geography.  map2stl's ``city2stl.registration.register_city_stl``
 builds the OSM source from a city name or bbox.
 """
 
@@ -86,7 +86,7 @@ def register_city_stl(
     ----------
     stl_file         : path to city STL (no geographic metadata required)
     reference        : a ``reference.ReferenceSource`` producing the building
-                       heightmap / masks / nDSM (strm2stl:
+                       heightmap / masks / nDSM (map2stl:
                        ``city2stl.registration.OSMReference``; in-memory arrays:
                        ``reference.StaticReference``)
     resolution       : output grid size for the comparison/report heightmaps
@@ -129,7 +129,7 @@ def register_city_stl(
         raise TypeError(
             "numpy2stl.registration.register_city_stl no longer fetches OSM: pass a "
             "ReferenceSource (numpy2stl.registration.reference).  To register against a "
-            "city name or (N, S, E, W) bbox use strm2stl's "
+            "city name or (N, S, E, W) bbox use map2stl's "
             "city2stl.registration.register_city_stl(stl_file, city_name, ...).")
     if region_name is None:
         region_name = str(getattr(reference, "name", "reference"))

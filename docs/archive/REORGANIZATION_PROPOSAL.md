@@ -435,9 +435,9 @@ cp oceans.py applications/
 - All current imports still work
 - Deprecation warnings guide users
 
-### Risk 2: Larger Project (strm2stl) Breaks
+### Risk 2: Larger Project (map2stl) Breaks
 **Mitigation**:
-- Audit all imports from strm2stl to numpy2stl
+- Audit all imports from map2stl to numpy2stl
 - Update before deprecating
 - Test integration
 

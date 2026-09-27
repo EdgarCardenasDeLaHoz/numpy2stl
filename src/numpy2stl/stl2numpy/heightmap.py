@@ -1,6 +1,6 @@
 """mesh_to_heightmap: convert a 3D mesh to a 2D elevation array.
 
-The one mesh → heightmap implementation in numpy2stl / strm2stl:
+The one mesh → heightmap implementation in numpy2stl / map2stl:
 
 - ``method="bin"``      sample the surface, bin the samples per cell (fast, any mesh)
 - ``method="raycast"``  one vertical ray per cell centre (exact top surface; needs

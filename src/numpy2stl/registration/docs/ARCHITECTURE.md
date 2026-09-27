@@ -93,11 +93,11 @@ raster — followed by a height comparison.
    (true aspect, NaN-padded to square) so a world-square building is pixel-square,
    matching the isotropic OSM raster.  Interior NaN holes filled; exterior padding kept NaN.
 2. **Reference fetch** — `reference.building_heightmap` / `reference.semantic_masks` on the
-   caller's `ReferenceSource`.  For OSM (strm2stl `city2stl.registration.OSMReference` over
+   caller's `ReferenceSource`.  For OSM (map2stl `city2stl.registration.OSMReference` over
    `city2stl.osm_raster`): per-footprint heights from `height` tag → `levels`×3.5 →
    `default_height`, plus vegetation/water/bridge masks to exclude from the STL building
    mask.  Optional `height_source="lidar"` replaces the heights with `reference.ndsm`
-   per footprint (strm2stl: 3DEP EPT nDSM, `city2stl.height.providers.lidar_3dep_ept`).
+   per footprint (map2stl: 3DEP EPT nDSM, `city2stl.height.providers.lidar_3dep_ept`).
 3. **Resolution-independent search** — the registration runs at a fixed `REGISTER_RES`
    (512); the found transform's linear part (scale+rotation) is a pixel ratio, so only the
    translation is scaled to the output grid.  Identical transform at any output resolution;
@@ -166,7 +166,7 @@ raster — followed by a height comparison.
 
 | Assumption / value | Where | Risk on a new city/STL | Override |
 |---|---|---|---|
-| City centre + tallest building | `_CITY_CONFIG` (strm2stl `city2stl/osm_raster.py`) | Only 4 cities pre-listed | `center=`, `tallest_m=`, or `scale_m_per_unit=` on strm2stl's `city2stl.registration.register_city_stl` / CLI `--center --tallest-m`; else the centre is **geocoded** automatically |
+| City centre + tallest building | `_CITY_CONFIG` (map2stl `city2stl/osm_raster.py`) | Only 4 cities pre-listed | `center=`, `tallest_m=`, or `scale_m_per_unit=` on map2stl's `city2stl.registration.register_city_stl` / CLI `--center --tallest-m`; else the centre is **geocoded** automatically |
 | Model centred on city centre | bbox + landmark check | Off-centre tiles misregister | use the complete single-piece model; pass `center=` |
 | `z_max` ⇒ tallest building | scale anchor | Cropped models lack the tallest tower | pass `tallest_m`/`scale_m_per_unit` |
 | OSM frame = 1.5× footprint | `DEFAULT_OSM_MARGIN` (config.py) | — | `config.osm_margin` |

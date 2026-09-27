@@ -5,7 +5,7 @@ to find the alignment and compare dataset quality.
 
 numpy2stl is geo-free: it does not fetch OSM. `register_city_stl(stl_file, reference)`
 takes a `numpy2stl.registration.ReferenceSource` (or a `StaticReference` over arrays
-you already have). To register against a city name or bbox, use strm2stl's
+you already have). To register against a city name or bbox, use map2stl's
 `city2stl.registration.register_city_stl(stl_file, city_name, ...)`, which builds the
 OSM source (`city2stl.osm_raster`) and takes the arguments shown below.
 
@@ -14,7 +14,7 @@ OSM source (`city2stl.osm_raster`) and takes the arguments shown below.
 > subpackage layout, the pipeline stages, the key algorithm decisions, and the
 > hardcode/assumption audit (how to run on a city not in the built-in config).
 
-**Works on any city** (strm2stl wrapper). Cities not in the built-in config geocode their centre
+**Works on any city** (map2stl wrapper). Cities not in the built-in config geocode their centre
 automatically; pass `tallest_m=` or `scale_m_per_unit=` (CLI `--tallest-m` /
 `--scale-m-per-unit`) for a tight, well-scaled OSM fetch, or `center=` / `--center
 LAT,LON` to set the downtown point explicitly.
@@ -24,7 +24,7 @@ LAT,LON` to set the downtown point explicitly.
 ## Quick Start
 
 ```python
-from city2stl.registration import register_city_stl   # strm2stl: fetches OSM
+from city2stl.registration import register_city_stl   # map2stl: fetches OSM
 
 # Full pipeline + write HTML report to ./report/
 report = register_city_stl(
@@ -48,7 +48,7 @@ print(f"Bias: {report.comparison.bias:+.1f} m  (+ = STL taller than OSM)")
 print(f"Coverage: {report.comparison.coverage_pct:.1f}%")
 ```
 
-Without strm2stl, pass the reference raster yourself (row 0 = south, NaN = no
+Without map2stl, pass the reference raster yourself (row 0 = south, NaN = no
 building):
 
 ```python
@@ -64,7 +64,7 @@ report = register_city_stl("philadelphia.stl", ref, resolution=512, out_dir="./r
 
 ```python
 from numpy2stl.stl2numpy import mesh_to_heightmap
-from city2stl.osm_raster import get_osm_building_heightmap   # strm2stl
+from city2stl.osm_raster import get_osm_building_heightmap   # map2stl
 from numpy2stl.registration.align import register, apply_transform
 from numpy2stl.registration.compare import compare
 
@@ -99,7 +99,7 @@ from numpy2stl.registration.types import (
 
 ---
 
-## Named Cities (strm2stl `city2stl.osm_raster`)
+## Named Cities (map2stl `city2stl.osm_raster`)
 
 ```python
 from city2stl.osm_raster import get_philadelphia_heightmap
@@ -122,7 +122,7 @@ Currently named wrappers: `get_philadelphia_heightmap`.
 
 ## Parameters Reference
 
-### `register_city_stl(stl_file, city_name, ...)` (strm2stl `city2stl.registration`)
+### `register_city_stl(stl_file, city_name, ...)` (map2stl `city2stl.registration`)
 
 `city_name`, `default_height`, `levels_to_meters`, `center`, `tallest_m` and
 `scale_m_per_unit` build the OSM source; everything else is passed to numpy2stl's

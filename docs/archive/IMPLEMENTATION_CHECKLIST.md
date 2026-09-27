@@ -519,15 +519,15 @@ assert old_writeSTL is new_writeSTL
 - [ ] New imports work (without warnings)
 - [ ] Functions are identical
 
-### Step 10.3: Test strm2stl Integration
+### Step 10.3: Test map2stl Integration
 Navigate to parent project and test imports:
 ```bash
-cd "d:\OneDrive\Documents\Projects\3D Maps\Code\strm2stl"
+cd "d:\OneDrive\Documents\Projects\3D Maps\Code\map2stl"
 python -c "import numpy2stl; print(numpy2stl.__version__)"
 python -c "from numpy2stl import array_to_mesh; print('OK')"
 ```
 
-- [ ] strm2stl can still import numpy2stl
+- [ ] map2stl can still import numpy2stl
 - [ ] No fatal errors
 - [ ] Deprecation warnings appear (expected)
 
@@ -698,7 +698,7 @@ print("Saved successfully")
 ### Testing Deliverables
 - [ ] All 44 tests passing
 - [ ] Backward compatibility verified
-- [ ] strm2stl integration verified
+- [ ] map2stl integration verified
 - [ ] Test organization matches new structure
 
 ### Version Control
@@ -715,7 +715,7 @@ print("Saved successfully")
 2. All 44 tests pass
 3. Deprecation warnings appear for old imports
 4. New imports work without warnings
-5. strm2stl can still import numpy2stl
+5. map2stl can still import numpy2stl
 6. Documentation reflects new structure
 7. Ready to build stl2numpy in clean structure
 

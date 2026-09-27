@@ -60,7 +60,7 @@ markers = [
     "requires_opencv: needs opencv-python installed",
 ]
 
-# Same rules as strm2stl/ruff.toml, so both repos enforce one standard.
+# Same rules as map2stl/ruff.toml, so both repos enforce one standard.
 [tool.ruff]
 line-length = 100
 target-version = "py311"
