@@ -5,7 +5,7 @@ Usage::
     from numpy2stl.stl2numpy import mesh_to_heightmap, get_mesh_properties
 
 Phase 1 — core conversions:
-    mesh_to_heightmap     STL/OBJ → 2D elevation array
+    mesh_to_heightmap     STL/OBJ/trimesh → 2D elevation array (method="bin" | "raycast")
     get_mesh_properties   Geometry statistics (volume, area, bounds …)
 
 Phase 2 — advanced conversions:

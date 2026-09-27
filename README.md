@@ -203,7 +203,17 @@ import numpy2stl.processing.simplify as simp       # Mesh simplification (scipy/
 import numpy2stl.processing.boolean as boolean     # Boolean operations (pymeshlab/manifold3d)
 import numpy2stl.applications.puzzle as puzzle     # Puzzle piece generation (trimesh)
 import numpy2stl.utils.visualization as view       # 3D visualization (matplotlib/napari)
+import numpy2stl.raster as raster                  # mask/polygon/NaN-fill helpers (cv2, rasterio optional)
+from numpy2stl.stl2numpy import mesh_to_heightmap  # mesh → heightmap (trimesh)
 ```
+
+`numpy2stl.raster` holds the generic 2-D raster helpers: `terrain_residual`,
+`building_mask`, `building_edges`, `split_touching_buildings` (segment),
+`vectorize_buildings` (mask → polygons), `burn_polygons` (polygons → raster,
+`mode="max"|"sum"|"set"`, holes kept, `bounds=` is north-up) and `fill_nan`.
+`mesh_to_heightmap(mesh_or_path, resolution | cell_size=, method="bin"|"raycast",
+row0="south"|"north")` is the one mesh → heightmap conversion; row 0 defaults to the
+mesh's min-y edge.
 
 ### Installation by Feature
 

@@ -56,7 +56,7 @@ def prism_decompose(
     """
     import trimesh
 
-    from ...registration.align import building_mask, terrain_residual, vectorize_buildings
+    from ...raster import building_mask, terrain_residual, vectorize_buildings
     from ...stl2numpy.heightmap import mesh_to_heightmap
     from ..extrusion import make_sloped_prism_solid
 

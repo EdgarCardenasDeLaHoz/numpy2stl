@@ -37,7 +37,7 @@ from typing import Any
 
 import numpy as np
 
-from .segmentation import HAS_CV2, building_edges, building_mask
+from ...raster.segment import HAS_CV2, building_edges, building_mask
 
 if HAS_CV2:
     import cv2

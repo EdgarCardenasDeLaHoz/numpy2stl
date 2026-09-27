@@ -4,7 +4,7 @@ Pure functions used by more than one stage (and by the orchestrator): affine
 decomposition for the report, the landmark sanity check, interior-NaN
 inpainting of the STL heightmap, and the coarse-registration "is this locked
 onto something real" gate shared by the orchestrator's probe check and
-applications.cities.find_best_city_center()'s per-candidate scoring.
+registration.center_search.find_best_city_center()'s per-candidate scoring.
 """
 
 from __future__ import annotations
@@ -12,6 +12,8 @@ from __future__ import annotations
 import logging
 
 import numpy as np
+
+from ...raster.fill import fill_nan
 
 logger = logging.getLogger(__name__)
 
@@ -170,37 +172,9 @@ def _inpaint_stl_nan(hm: np.ndarray) -> np.ndarray:
     for this use: we just need a plausible height so the terrain model is
     continuous, not a precise interpolated value.
     """
-    nan_mask = np.isnan(hm)
-    if not nan_mask.any():
-        return hm
-    try:
-        from scipy.ndimage import distance_transform_edt, label
-
-        # Only fill *interior* holes — NaN regions enclosed by the mesh.  NaN that
-        # is connected to the image border is exterior padding (added when the
-        # model is rendered isotropically into a square canvas) and must stay NaN,
-        # otherwise nearest-neighbour fill would smear building heights into the
-        # empty margin and re-introduce a stretch-like artefact.
-        structure = np.ones((3, 3), dtype=int)
-        lbl, n_lbl = label(nan_mask, structure=structure)
-        border_ids = set(np.unique(np.concatenate([
-            lbl[0, :], lbl[-1, :], lbl[:, 0], lbl[:, -1]])).tolist())
-        border_ids.discard(0)
-        exterior = np.isin(lbl, list(border_ids)) if border_ids else np.zeros_like(nan_mask)
-        interior = nan_mask & ~exterior
-
-        filled = hm.copy()
-        if interior.any():
-            _, idx = distance_transform_edt(nan_mask, return_indices=True)
-            interior_idx = (idx[0][interior], idx[1][interior])
-            filled[interior] = hm[interior_idx]
-        logger.debug(
-            "STL inpaint: filled %d interior NaN px; left %d exterior padding px",
-            int(interior.sum()), int(exterior.sum()))
-        return filled
-    except ImportError:
-        # scipy not available — median fill as last resort
-        median_val = float(np.nanmedian(hm))
-        filled = hm.copy()
-        filled[nan_mask] = median_val
-        return filled
+    # Only *interior* holes — NaN regions enclosed by the mesh.  NaN connected to
+    # the image border is exterior padding (added when the model is rendered
+    # isotropically into a square canvas) and must stay NaN, otherwise the fill
+    # would smear building heights into the empty margin and re-introduce a
+    # stretch-like artefact.
+    return fill_nan(hm, method="nearest", interior_only=True)

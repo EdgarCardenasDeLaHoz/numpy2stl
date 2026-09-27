@@ -9,10 +9,10 @@ import time
 
 import numpy as np
 
+from ...raster.segment import building_edges
 from .lines import gradient_angle_histogram, rotation_from_angle_histograms
 from .mask_source import produce_edges
 from .metrics import _dice, _tolerant_iou
-from .segmentation import building_edges
 
 logger = logging.getLogger(__name__)
 

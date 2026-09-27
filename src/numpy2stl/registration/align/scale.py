@@ -11,7 +11,7 @@ import logging
 
 import numpy as np
 
-from .segmentation import building_mask
+from ...raster.segment import building_mask
 
 logger = logging.getLogger(__name__)
 

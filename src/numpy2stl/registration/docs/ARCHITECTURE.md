@@ -19,10 +19,11 @@ registration/
   compare.py         height comparison (affine fit stl_m = scale*stl + offset)
   types.py           frozen dataclasses (RegistrationResult, ComparisonResult, …)
   html_report.py     HTML assembly (sections in pipeline order)
+  center_search.py   find_best_city_center (ring search for the OSM fetch centre)
   align/
     transform.py     preprocess, apply_transform, matrix helpers
-    segmentation.py  terrain_residual, building_mask, building_edges, split_touching_buildings,
-                     vectorize_buildings (+ rectilinear regularization)
+    segmentation.py  deprecated alias of numpy2stl.raster.segment / .vectorize (terrain_residual,
+                     building_mask, building_edges, split_touching_buildings, vectorize_buildings)
     lines.py         gradient_angle_histogram + rotation_from_angle_histograms (gradient-only;
                      the legacy Hough line detector was removed)
     scale.py         estimate_scale (area + Fourier) — report diagnostics only

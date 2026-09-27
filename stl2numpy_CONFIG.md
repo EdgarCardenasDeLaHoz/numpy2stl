@@ -54,17 +54,13 @@ heightmap = mesh_to_heightmap("model.stl", projection='mean') # average
 
 **Implementation**:
 ```python
-heightmap = mesh_to_heightmap("model.stl")  # NaN for gaps
-# User can then choose interpolation:
-from scipy.interpolate import griddata
-# ... fill NaNs as needed
+hm = mesh_to_heightmap("model.stl")["heightmap"]  # NaN for gaps
+# Fill afterwards if needed:
+from numpy2stl.raster import fill_nan
+hm = fill_nan(hm, method="nearest", interior_only=True)   # or "median" / "constant"
 ```
 
-**Future option** (Phase 2):
-```python
-heightmap = mesh_to_heightmap("model.stl", fill_method='nearest')  # optional
-heightmap = mesh_to_heightmap("model.stl", fill_method='linear')
-```
+`method="raycast"` (one ray per cell centre) leaves no gaps over the mesh at all.
 
 ---
 

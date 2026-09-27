@@ -42,7 +42,7 @@ def _save_prism_lod(mesh, z_axis: int, save_path: Path, deviation_tol_m: float) 
     """Aggressive blocky LOD: detect footprints on the (simplified) heightmap and
     re-extrude each as a flat-top prism at its plateau height."""
     from ...io.writers import write3MF
-    from ...registration.align.segmentation import building_mask, vectorize_buildings
+    from ...raster import building_mask, vectorize_buildings
     from ..extrusion import make_prism_solid
 
     # Rasterise the in-memory simplified mesh to a heightmap.
@@ -66,18 +66,9 @@ def _save_prism_lod(mesh, z_axis: int, save_path: Path, deviation_tol_m: float) 
 
 
 def _rasterize_mesh(mesh, z_axis: int = 2, resolution: int = 512):
-    """Quick in-memory mesh → heightmap (max projection), mirroring
-    mesh_to_heightmap's binning but without the file/cache path."""
-    from scipy.stats import binned_statistic_2d
-    h_axes = [i for i in range(3) if i != z_axis]
-    v = np.asarray(mesh.vertices)
-    try:
-        pts = mesh.sample(resolution * resolution * 8)
-        pts = np.vstack([v, pts])
-    except Exception:
-        pts = v
-    x, y, z = pts[:, h_axes[0]], pts[:, h_axes[1]], pts[:, z_axis]
-    hm, _, _, _ = binned_statistic_2d(x, y, z, statistic="max",
-                                      bins=[resolution, resolution])
-    cell = (np.ptp(x) / resolution, np.ptp(y) / resolution)
-    return hm.T.astype(np.float64), cell
+    """In-memory mesh → (heightmap, cell) via ``mesh_to_heightmap`` (max binning,
+    8× oversampling, row 0 = min y, no size cap or cache)."""
+    from ...stl2numpy.heightmap import mesh_to_heightmap
+    r = mesh_to_heightmap(mesh, resolution=resolution, z_axis=z_axis, allow_large=True,
+                          cache=False, oversampling=8)
+    return r["heightmap"], r["cell_size"]

@@ -8,7 +8,7 @@ import logging
 
 import numpy as np
 
-from .segmentation import building_edges, building_mask
+from ...raster.segment import building_edges, building_mask
 from .transform import apply_transform
 
 logger = logging.getLogger(__name__)

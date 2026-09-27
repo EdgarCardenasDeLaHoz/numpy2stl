@@ -2,10 +2,22 @@
 
 Split from the former monolithic align.py into topical submodules.
 This faade re-exports the full public + test surface so
-`from numpy2stl.registration.align import X` keeps working.
+`from numpy2stl.registration.align import X` keeps working (the segmentation
+and vectorisation helpers live in ``numpy2stl.raster``).
 """
 from __future__ import annotations
 
+from ...raster.segment import (
+    HAS_CV2,  # noqa: F401
+    _base_plate_threshold,
+    _component_features,
+    building_edges,
+    building_mask,
+    hill_relief_mask,
+    split_touching_buildings,
+    terrain_residual,
+)
+from ...raster.vectorize import _regularize_polygon, vectorize_buildings
 from .ecc import discover_projection, refine_transform
 from .fourier_mellin import FourierMellinResult, fourier_mellin_register
 from .global_search import register_global
@@ -22,18 +34,6 @@ from .polygon_icp import refine_registration_polygons
 from .polygon_register import register_polygons
 from .register import register
 from .scale import _fourier_profile_scale, estimate_scale
-from .segmentation import (
-    HAS_CV2,  # noqa: F401
-    _base_plate_threshold,
-    _component_features,
-    _regularize_polygon,
-    building_edges,
-    building_mask,
-    hill_relief_mask,
-    split_touching_buildings,
-    terrain_residual,
-    vectorize_buildings,
-)
 from .transform import (
     _compose_resize_scale,
     _decompose_matrix,

@@ -8,8 +8,8 @@ import logging
 
 import numpy as np
 
+from ...raster.segment import building_edges, building_mask
 from .metrics import _mask_sdf, _tolerant_iou
-from .segmentation import building_edges, building_mask
 from .transform import _preprocess_for_registration, apply_transform
 
 logger = logging.getLogger(__name__)

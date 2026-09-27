@@ -241,7 +241,7 @@ def register_city_stl(
         if _run_search:
             logger.info("Center-search: probe did not lock (or center_search='always') — "
                         "searching alternate centers for %r.", city_name)
-            from ..applications.cities import find_best_city_center
+            from .center_search import find_best_city_center
             _search = _timed(
                 "Center-search: find_best_city_center", find_best_city_center,
                 city_name, stl_z_max, stl_xy_extent, stl_hm,

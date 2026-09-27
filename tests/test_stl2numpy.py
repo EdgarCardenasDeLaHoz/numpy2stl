@@ -118,6 +118,112 @@ class TestMeshToHeightmap:
 
 
 # ---------------------------------------------------------------------------
+# mesh_to_heightmap: method="bin" vs method="raycast", row0, cell_size
+# ---------------------------------------------------------------------------
+
+def _pyramid_mesh(half=5.0, apex=5.0):
+    """Square pyramid, base [-half, half]² at z=0, apex at (0, 0, apex)."""
+    import trimesh
+    v = np.array([[-half, -half, 0], [half, -half, 0], [half, half, 0], [-half, half, 0],
+                  [0, 0, apex]], dtype=np.float64)
+    f = np.array([[0, 1, 4], [1, 2, 4], [2, 3, 4], [3, 0, 4], [0, 2, 1], [0, 3, 2]])
+    return trimesh.Trimesh(vertices=v, faces=f, process=False)
+
+
+def _cell_centres(r):
+    (x0, x1), (y0, y1) = r["bounds"]["x"], r["bounds"]["y"]
+    rows, cols = r["heightmap"].shape
+    xs = x0 + (np.arange(cols) + 0.5) * (x1 - x0) / cols
+    ys = y0 + (np.arange(rows) + 0.5) * (y1 - y0) / rows
+    return np.meshgrid(xs, ys)
+
+
+class TestMeshToHeightmapMethods:
+
+    def test_box_bin_and_raycast_agree(self):
+        import trimesh
+
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        box = trimesh.creation.box(extents=(10.0, 6.0, 4.0))
+        rb = mesh_to_heightmap(box, resolution=(6, 10), cache=False)
+        rr = mesh_to_heightmap(box, resolution=(6, 10), cache=False, method="raycast")
+        assert rr["heightmap"].shape == rb["heightmap"].shape == (6, 10)
+        assert np.isfinite(rr["heightmap"]).all()
+        np.testing.assert_allclose(rr["heightmap"], 2.0, atol=1e-9)
+        np.testing.assert_allclose(rb["heightmap"], rr["heightmap"], atol=1e-9)
+        assert rr["cell_size"] == rb["cell_size"]
+        lo = mesh_to_heightmap(box, resolution=(6, 10), cache=False, method="raycast",
+                               projection="min")
+        np.testing.assert_allclose(lo["heightmap"], -2.0, atol=1e-9)
+
+    def test_pyramid_raycast_exact_and_bin_close(self):
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        mesh = _pyramid_mesh()
+        rr = mesh_to_heightmap(mesh, resolution=20, cache=False, method="raycast")
+        rb = mesh_to_heightmap(mesh, resolution=20, cache=False)
+        xx, yy = _cell_centres(rr)
+        expected = 5.0 - np.maximum(np.abs(xx), np.abs(yy))
+        np.testing.assert_allclose(rr["heightmap"], expected, atol=1e-6)
+        # Binning takes the max over the whole cell: at most one half-diagonal of
+        # slope 1 above the centre value, never below it.
+        diff = rb["heightmap"] - rr["heightmap"]
+        assert np.isfinite(diff).all()
+        assert diff.min() > -1e-6
+        assert diff.max() <= 0.5 + 1e-6
+
+    def test_default_row0_is_min_y(self):
+        import trimesh
+
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        # A tall block in the +y half: with row0="south" it lands in the last rows.
+        a = trimesh.creation.box(extents=(4, 4, 1))
+        b = trimesh.creation.box(extents=(4, 2, 3))
+        b.apply_translation((0, 1, 1))
+        mesh = trimesh.util.concatenate([a, b])
+        for method in ("bin", "raycast"):
+            hm = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method)["heightmap"]
+            assert hm[-1].mean() > hm[0].mean()
+            north = mesh_to_heightmap(mesh, resolution=4, cache=False, method=method,
+                                      row0="north")
+            assert north["row0"] == "north"
+            if method == "raycast":
+                np.testing.assert_array_equal(north["heightmap"], np.flipud(hm))
+
+    def test_cell_size(self):
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        mesh = _pyramid_mesh()
+        r = mesh_to_heightmap(mesh, cell_size=0.5, cache=False, method="raycast")
+        assert r["heightmap"].shape == (20, 20)
+        assert r["cell_size"] == (0.5, 0.5)
+        r2 = mesh_to_heightmap(mesh, cell_size=(1.0, 2.0), cache=False, method="raycast")
+        assert r2["heightmap"].shape == (5, 10)
+        with pytest.raises(ValueError, match="cell_size"):
+            mesh_to_heightmap(mesh, resolution=10, cell_size=1.0, cache=False)
+
+    def test_bad_method_raises(self):
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        with pytest.raises(ValueError, match="method"):
+            mesh_to_heightmap(_pyramid_mesh(), resolution=8, cache=False, method="splat")
+
+    def test_file_and_mesh_inputs_match(self, pyramid_stl):
+        from numpy2stl.io.readers import load_trimesh
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        a = mesh_to_heightmap(pyramid_stl, resolution=16, cache=False, method="raycast")
+        b = mesh_to_heightmap(load_trimesh(pyramid_stl), resolution=16, cache=False,
+                              method="raycast")
+        np.testing.assert_array_equal(a["heightmap"], b["heightmap"])
+        assert a["bounds"] == b["bounds"]
+
+    def test_rasterize_mesh_uses_mesh_to_heightmap(self):
+        from numpy2stl.processing.building_simplify._io import _rasterize_mesh
+        mesh = _pyramid_mesh()
+        hm, cell = _rasterize_mesh(mesh, resolution=16)
+        assert hm.shape == (16, 16)
+        assert cell == (10.0 / 16, 10.0 / 16)
+        assert np.nanmax(hm) <= 5.0 + 1e-9
+
+
+# ---------------------------------------------------------------------------
 # get_mesh_properties
 # ---------------------------------------------------------------------------
 

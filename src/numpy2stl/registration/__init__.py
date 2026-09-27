@@ -13,8 +13,9 @@ Step-by-step::
     from numpy2stl.registration.html_report import write_registration_report
 
 This package `__init__` is a thin façade: the orchestrator and its stage helpers
-live in `pipeline.py`; the comparison, transforms, report and types live in their
-own modules (`compare`, `align`, `html_report`, `types`).
+live in `pipeline.py`; the comparison, transforms, report, types and the OSM
+centre search live in their own modules (`compare`, `align`, `html_report`,
+`types`, `center_search`).  Generic mask / polygon helpers are in `numpy2stl.raster`.
 """
 from __future__ import annotations
 
