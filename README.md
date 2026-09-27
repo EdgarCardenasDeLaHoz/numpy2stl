@@ -162,8 +162,11 @@ solid.save_stl("extruded_polygon.stl")
 ```python
 import numpy2stl.processing.simplify as simp
 
-# Reduce face count by 50%
-simplified_faces = simp.simplify_mesh_surfaces(vertices, faces, min_faces=10)
+# Lossless: flat regions are retriangulated with the fewest triangles that
+# cover exactly the same polygon. Same volume, area and boundary; no vertex
+# moves or is added; a watertight input stays watertight. Returns faces that
+# index the input vertices.
+simplified_faces = simp.simplify_mesh_surfaces(vertices, faces)
 ```
 
 ### Boolean Operations
@@ -172,8 +175,13 @@ simplified_faces = simp.simplify_mesh_surfaces(vertices, faces, min_faces=10)
 # Requires the boolean extra: pip install -e ".[boolean]"
 import numpy2stl.processing.boolean as boolean
 
-# Cut puzzle pieces from base mesh
-pieces = boolean.cut_puzzle_pieces(base_model, puzzle_cutters)
+from numpy2stl.applications.puzzle import make_jigsaw_cutters
+
+# 200 x 144 mm model -> 4 x 3 interlocking pieces keyed "r{row}c{col}" (row 0 = min y)
+cutters = make_jigsaw_cutters(200, 144, cols=4, rows=3, knob_width=12, knob_depth=6,
+                              clearance=0.3, z0=-1, z1=100)
+# manifold3d intersection; raises if the pieces miss more than the clearance gaps
+pieces = boolean.cut_jigsaw(vertices, faces, cutters)
 ```
 
 ### Visualization

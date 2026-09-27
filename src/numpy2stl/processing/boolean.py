@@ -13,79 +13,142 @@ def clean_mesh(ms):
     return ms
 
 
-def cut_puzzle_pieces(model, puzzle):
-    pieces_out = {}
-    vx_base, fs_base = model
+def mesh_volume(vertices, faces):
+    """Signed volume of a closed triangle mesh (positive when faces point outward)."""
+    tri = np.asarray(vertices, dtype=np.float64)[np.asarray(faces, dtype=np.int64)]
+    return float(np.einsum("ij,ij->i", tri[:, 0], np.cross(tri[:, 1], tri[:, 2])).sum() / 6.0)
 
+
+def cut_jigsaw(vertices, faces, cutters, engine="manifold", max_loss=0.01):
+    """Split a watertight mesh into jigsaw pieces by intersecting it with each cutter.
+
+    Parameters
+    ----------
+    vertices, faces : ndarray
+        The model; must be a closed, consistently wound solid.
+    cutters : dict[str, (vertices, faces)]
+        Cutter prisms, e.g. from ``applications.puzzle.make_jigsaw_cutters``.
+    engine : {"manifold", "pymeshlab"}
+        Boolean backend. manifold3d is exact and fast; pymeshlab is the fallback.
+    max_loss : float or None
+        Largest tolerated fraction of the model's volume that is missing from
+        the pieces *besides* the clearance slivers between cutters (e.g. a
+        strip of the model no cutter reaches, or cutters that overlap).
+        ``None`` skips the check.
+
+    Returns
+    -------
+    dict[str, (vertices, faces)]
+        One entry per non-empty piece, same keys as ``cutters``.
+
+    Raises
+    ------
+    ValueError
+        If the input is not a valid solid for the engine, or the pieces'
+        volume differs from the model's minus the slivers by more than
+        ``max_loss``.
+    """
+    if engine == "manifold":
+        pieces = _intersect_manifold(vertices, faces, cutters)
+    elif engine == "pymeshlab":
+        pieces = _intersect_pymeshlab(vertices, faces, cutters)
+    else:
+        raise ValueError(f"unknown engine {engine!r}; use 'manifold' or 'pymeshlab'")
+
+    if max_loss is not None:
+        _check_volume(vertices, faces, cutters, pieces, max_loss)
+    return pieces
+
+
+def _check_volume(vertices, faces, cutters, pieces, max_loss):
+    """Pieces must add up to the model minus the gaps between the cutters.
+
+    The gaps are the part of the model inside the cutters' convex hull but in
+    no cutter; model outside the hull was never covered and counts as lost.
+    """
+    import manifold3d as mfd
+
+    base = _to_manifold(vertices, faces, "model")
+    union = mfd.Manifold.batch_boolean(
+        [_to_manifold(v, f, f"cutter {k}") for k, (v, f) in cutters.items()], mfd.OpType.Add
+    )
+    v_in = base.volume()
+    slivers = (base ^ union.hull()).volume() - (base ^ union).volume()
+    v_out = sum(abs(mesh_volume(v, f)) for v, f in pieces.values())
+    missing = (v_in - slivers - v_out) / v_in if v_in > 0 else 0.0
+    logger.info(
+        f"cut_jigsaw: {len(pieces)} pieces, clearance gaps {slivers / max(v_in, 1e-300):.3%}, "
+        f"unaccounted {missing:.3%} of the volume"
+    )
+    if abs(missing) > max_loss:
+        raise ValueError(
+            f"jigsaw pieces miss {missing:.2%} of the model volume beyond the clearance gaps "
+            f"(limit {max_loss:.2%}); do the cutters cover the whole model without overlapping?"
+        )
+
+
+def _to_manifold(vertices, faces, what):
+    import manifold3d as mfd  # optional extra: numpy2stl[boolean]
+
+    mesh = mfd.Mesh64(
+        # Copies: manifold3d rejects read-only arrays (e.g. another Mesh64's).
+        vert_properties=np.array(vertices, dtype=np.float64, order="C"),
+        tri_verts=np.array(faces, dtype=np.uint64, order="C"),
+    )
+    solid = mfd.Manifold(mesh)
+    if solid.status() != mfd.Error.NoError:
+        raise ValueError(f"{what} is not a closed manifold solid: {solid.status()}")
+    return solid
+
+
+def _intersect_manifold(vertices, faces, cutters):
+    base = _to_manifold(vertices, faces, "model")
+    pieces = {}
+    for key, (v_c, f_c) in cutters.items():
+        piece = base ^ _to_manifold(v_c, f_c, f"cutter {key}")  # ``^`` is intersection
+        if piece.is_empty():
+            logger.warning(f"Piece {key}: empty intersection")
+            continue
+        out = piece.to_mesh64()
+        pieces[key] = (
+            np.array(out.vert_properties[:, :3], dtype=np.float64),
+            np.array(out.tri_verts, dtype=np.int64),
+        )
+    return pieces
+
+
+def _intersect_pymeshlab(vertices, faces, cutters):
     base_ms = ml.MeshSet()
-    base_ms.add_mesh(ml.Mesh(vx_base.astype(np.float32), fs_base.astype(np.int32)))
+    base_ms.add_mesh(
+        ml.Mesh(np.asarray(vertices, dtype=np.float64), np.asarray(faces, dtype=np.int32))
+    )
     clean_mesh(base_ms)
-
     cleaned_base = base_ms.current_mesh()
 
-    for key, (vx_p, fs_p) in puzzle.items():
+    pieces = {}
+    for key, (v_c, f_c) in cutters.items():
         ms = ml.MeshSet()
-
         ms.add_mesh(cleaned_base, "base")
-
-        ms.add_mesh(ml.Mesh(vx_p.astype(np.float32), fs_p.astype(np.int32)), "cutter")
+        ms.add_mesh(
+            ml.Mesh(np.asarray(v_c, dtype=np.float64), np.asarray(f_c, dtype=np.int32)), "cutter"
+        )
         clean_mesh(ms)
+        ms.generate_boolean_intersection(first_mesh=0, second_mesh=1)
+        res = ms.current_mesh()
+        if res.face_number() == 0:
+            logger.warning(f"Piece {key}: empty intersection")
+            continue
+        pieces[key] = (res.vertex_matrix(), res.face_matrix().astype(np.int64))
+    return pieces
 
-        try:
-            ms.generate_boolean_intersection(first_mesh=0, second_mesh=1)
 
-            res = ms.current_mesh()
-            if res.face_number() > 0:
-                pieces_out[key] = (res.vertex_matrix(), res.face_matrix())
-                logger.info(f"Piece {key}: Success ({res.face_number()} faces)")
-            else:
-                logger.warning(f"Piece {key}: Empty intersection")
-
-        except Exception as e:
-            logger.error(f"Piece {key}: Boolean failed - {e}")
-
-    return pieces_out
+def cut_puzzle_pieces(model, puzzle):
+    """``cut_jigsaw`` with pymeshlab, without the volume check (older API)."""
+    vertices, faces = model
+    return cut_jigsaw(vertices, faces, puzzle, engine="pymeshlab", max_loss=None)
 
 
 def cut_puzzle_pieces_manifold(model, puzzle):
-    import manifold3d as mfd  # optional extra: numpy2stl[boolean]
-
-    pieces_out = {}
-
-    vx_m, fs_m = model
-    vx_m = np.ascontiguousarray(vx_m, dtype=np.float32)
-    fs_m = np.ascontiguousarray(fs_m, dtype=np.uint32)
-
-    base_manifold = mfd.Manifold(mfd.Mesh(vert_properties=vx_m, tri_verts=fs_m))
-
-    print("Processing pieces with Manifold engine...")
-
-    for key, (vx_p, fs_p) in puzzle.items():
-        try:
-            vx_p = np.ascontiguousarray(vx_p, dtype=np.float32)
-            fs_p = np.ascontiguousarray(fs_p, dtype=np.uint32)
-
-            cutter_manifold = mfd.Manifold(mfd.Mesh(vert_properties=vx_p, tri_verts=fs_p))
-
-            result_manifold = base_manifold ^ cutter_manifold
-
-            res_mesh = result_manifold.to_mesh()
-
-            if len(res_mesh.tri_verts) > 0:
-                verts = res_mesh.vert_properties.reshape(-1, 3)
-                pieces_out[key] = (verts, res_mesh.tri_verts)
-                logger.info(f"Piece {key}: Success")
-            else:
-                logger.warning(f"Piece {key}: No intersection")
-
-        except Exception as e:
-            try:
-                result_manifold = base_manifold.intersect(cutter_manifold)
-                res_mesh = result_manifold.to_mesh()
-                verts = res_mesh.vert_properties.reshape(-1, 3)
-                pieces_out[key] = (verts, res_mesh.tri_verts)
-                logger.info(f"Piece {key}: Success (via .intersect)")
-            except Exception:
-                logger.error(f"Piece {key}: Failed - {e}")
-
-    return pieces_out
+    """``cut_jigsaw`` with manifold3d, without the volume check (older API)."""
+    vertices, faces = model
+    return cut_jigsaw(vertices, faces, puzzle, engine="manifold", max_loss=None)

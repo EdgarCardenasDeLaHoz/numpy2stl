@@ -6,9 +6,15 @@ from .generate import (
     polygon_to_prism,
 )
 from .polygon import (
+    get_area,
     get_ordered_perimeter,
+    get_orientation,
     get_perimeter_angles,
+    get_perimeter_normal,
+    perimeter_to_2D,
     rotate_3D,
+    set_orientation,
+    simplify_line,
     triangulate_polygon,
 )
 from .solid import (
@@ -34,6 +40,12 @@ __all__ = [
     "triangulate_polygon",
     "get_perimeter_angles",
     "rotate_3D",
+    "perimeter_to_2D",
+    "get_perimeter_normal",
+    "get_area",
+    "get_orientation",
+    "set_orientation",
+    "simplify_line",
     # solid
     "Solid",
     "calculate_normals",

@@ -1,7 +1,23 @@
 # Tests for polygon.py - Polygon utilities
 import numpy as np
 
-from numpy2stl import get_ordered_perimeter, rotate_3D, triangulate_polygon
+from numpy2stl import (
+    get_area,
+    get_ordered_perimeter,
+    get_orientation,
+    get_perimeter_normal,
+    perimeter_to_2D,
+    rotate_3D,
+    set_orientation,
+    simplify_line,
+    triangulate_polygon,
+)
+
+# CCW unit-ish square in the xy-plane with a collinear midpoint on each side.
+SQUARE_MID = np.array(
+    [[0, 0, 0], [1, 0, 0], [2, 0, 0], [2, 1, 0], [2, 2, 0], [1, 2, 0], [0, 2, 0], [0, 1, 0]],
+    dtype=np.float64,
+)
 
 
 class TestGetOrderedPerimeter:
@@ -146,3 +162,52 @@ class TestTriangulatePolygon:
         # but at least verify we got a reasonable number of triangles)
         # Area of (4x4 - 2x2) = 12, so roughly 12-16 triangles expected
         assert 8 <= len(faces) <= 24
+
+
+class TestPerimeterHelpers:
+    """Orientation, area, normal and collinear-point helpers."""
+
+    def test_orientation_sign(self):
+        ccw = SQUARE_MID[:, :2]
+        assert get_orientation(ccw)[0] > 0
+        assert get_orientation(ccw[::-1])[0] < 0
+        # twice the signed area
+        assert np.isclose(get_orientation(ccw)[0], 8.0)
+
+    def test_set_orientation(self):
+        ccw = SQUARE_MID[:, :2]
+        out = set_orientation([ccw, ccw[::-1]], orientation=1)
+        assert all(get_orientation(p)[0] > 0 for p in out)
+        out = set_orientation([ccw, ccw[::-1]], orientation=-1)
+        assert all(get_orientation(p)[0] < 0 for p in out)
+        np.testing.assert_array_equal(out[1], ccw[::-1])
+
+    def test_perimeter_normal(self):
+        np.testing.assert_allclose(get_perimeter_normal(SQUARE_MID), [0, 0, 1])
+        np.testing.assert_allclose(get_perimeter_normal(SQUARE_MID[::-1]), [0, 0, -1])
+        # a vertical perimeter in the xz-plane
+        wall = SQUARE_MID[:, [0, 2, 1]]
+        n = get_perimeter_normal(wall)
+        assert np.isclose(abs(n[1]), 1.0)
+
+    def test_area_in_any_plane(self):
+        assert np.isclose(get_area(SQUARE_MID), 4.0)
+        tilted = rotate_3D(SQUARE_MID, [0, 0, 1], [1, 1, 1])
+        assert np.isclose(abs(get_area(tilted)), 4.0)
+
+    def test_simplify_line_drops_collinear_points(self):
+        line = simplify_line(SQUARE_MID[:, :2])
+        np.testing.assert_array_equal(line, [[0, 0], [2, 0], [2, 2], [0, 2]])
+
+    def test_simplify_line_keeps_corners(self):
+        tri = np.array([[0, 0], [3, 0], [0, 4]], dtype=np.float64)
+        np.testing.assert_array_equal(simplify_line(tri), tri)
+
+    def test_perimeter_to_2D(self):
+        wall = SQUARE_MID[:, [0, 2, 1]] + [0, 5, 0]  # xz-plane at y=5
+        normal = get_perimeter_normal(wall)
+        flat = perimeter_to_2D([wall], normal)[0]
+        assert np.allclose(flat[:, 2], flat[0, 2])  # planar -> constant z
+        assert len(flat) == len(wall)
+        simple = perimeter_to_2D([wall], normal, simplify_lines=True)[0]
+        assert len(simple) == 4

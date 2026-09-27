@@ -78,6 +78,82 @@ def perimeters_to_edges(perimeters):
     return edges
 
 
+def perimeter_to_2D(perimeters, normal, simplify_lines=False):
+    """Rotate 3-D perimeters so ``normal`` points along +z.
+
+    With ``simplify_lines`` the collinear (180 degree) points are dropped from
+    each rotated perimeter.
+    """
+    perimeter_2d = [rotate_3D(lines, normal, [0, 0, 1]) for lines in perimeters]
+
+    if simplify_lines:
+        perimeter_2d = [simplify_line(line) for line in perimeter_2d]
+
+    return perimeter_2d
+
+
+##########################################################################################
+##########################################################################################
+
+
+def get_perimeter_normal(perimeter):
+    """Unit normal of a planar 3-D perimeter, from the first non-degenerate corner."""
+    n = 0
+    normal = np.cross(perimeter[n + 1] - perimeter[n], perimeter[n - 1] - perimeter[n])
+    while (np.linalg.norm(normal) == 0) and (n < len(perimeter) - 1):
+        normal = np.cross(perimeter[n + 1] - perimeter[n], perimeter[n - 1] - perimeter[n])
+        n = n + 1
+
+    normal = normal / np.linalg.norm(normal)
+
+    return normal
+
+
+def get_area(perimeter):
+    """Area of a planar 3-D perimeter, negative when it winds clockwise.
+
+    The perimeter is first rotated onto its own plane (see
+    ``get_perimeter_normal``), then measured with the shoelace formula.
+    """
+    normal = get_perimeter_normal(perimeter)
+    perimeter = rotate_3D(perimeter, normal, [0, 0, 1])
+
+    x, y = perimeter[:, 0], perimeter[:, 1]
+
+    area = 0.5 * np.abs(np.dot(x, np.roll(y, 1)) - np.dot(y, np.roll(x, 1)))
+
+    orient = get_orientation(perimeter)
+    if orient[0] < 0:
+        area = -area
+
+    return area
+
+
+def get_orientation(perimeter):
+    """Twice the signed xy-area of a perimeter, in a one-element list.
+
+    Positive for counter-clockwise (seen from +z), negative for clockwise.
+    """
+    edges = perimeters_to_edges([perimeter])
+    orientation = [
+        np.sum(np.diff(e[:, :, 0], n=1, axis=1) * np.sum(e[:, :, 1], axis=1)[:, None])
+        for e in edges
+    ]
+    return orientation
+
+
+def set_orientation(perimeter, orientation=1):
+    """Reverse the perimeters in a list so each winds CCW (``orientation > 0``) or CW."""
+    perimeter_out = []
+    for p in perimeter:
+        result = get_orientation(p)[0]
+        if (orientation < 0 and result > 0) or (orientation > 0 and result < 0):
+            p = p[::-1]
+        perimeter_out.append(p)
+
+    return perimeter_out
+
+
 ##########################################################################################
 ##########################################################################################
 
@@ -93,6 +169,14 @@ def get_perimeter_angles(line_2D):
     angles = get_angle_vectors(bc, ba)
 
     return angles
+
+
+def simplify_line(line_2D):
+    """Drop the points of a closed 2-D line where it runs straight (angle 180)."""
+    angles = get_perimeter_angles(line_2D)
+    simpified_line = np.array(line_2D[angles != 180])
+
+    return simpified_line
 
 
 def get_angle_vectors(ba, bc):
