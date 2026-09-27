@@ -184,7 +184,8 @@ def get_angle_vectors(ba, bc):
     ba = ba / np.array(np.linalg.norm(ba, axis=1))[:, None]
     bc = bc / np.array(np.linalg.norm(bc, axis=1))[:, None]
     dot_prod = np.sum(ba * bc, axis=1)
-    cross_prod = np.cross(ba, bc)
+    # z of the 2-D cross product (np.cross rejects 2-D vectors since NumPy 2.0)
+    cross_prod = ba[:, 0] * bc[:, 1] - ba[:, 1] * bc[:, 0]
 
     angle = np.arctan2(cross_prod, dot_prod)
     angle = np.degrees(angle)
