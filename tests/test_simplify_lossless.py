@@ -121,3 +121,129 @@ def test_non_planar_mesh_unchanged():
 def test_empty_input():
     faces = simplify_mesh_surfaces(np.zeros((0, 3)), np.zeros((0, 3), dtype=int))
     assert faces.shape == (0, 3)
+
+
+def _manifold_mesh(solid):
+    out = solid.to_mesh64()
+    return np.asarray(out.vert_properties)[:, :3], np.asarray(out.tri_verts, dtype=np.int64)
+
+
+def _flat_faces(mesh, z):
+    """Faces of ``mesh`` on the upward-facing plane at height ``z``."""
+    return (mesh.face_normals[:, 2] > 1 - 1e-9) & np.isclose(mesh.triangles_center[:, 2], z)
+
+
+def test_sliver_strip_with_near_collinear_points():
+    # A 200 mm x 1 mm strip whose long sides wobble by 1e-6: every boundary
+    # point is nearly collinear with its neighbours (Triangle's
+    # "segmentintersection" territory). The top must still become a minimal
+    # triangulation of its boundary.
+    mfd = pytest.importorskip("manifold3d")
+    rng = np.random.default_rng(1)
+    x = np.linspace(0, 200, 301)
+    lo = 1e-6 * rng.standard_normal(len(x))
+    hi = 1e-3 + 1e-6 * rng.standard_normal(len(x))
+    outline = np.r_[np.c_[x, lo], np.c_[x, hi][::-1]]
+    v, f = _manifold_mesh(mfd.CrossSection([outline]).extrude(2.0))
+    mesh = trimesh.Trimesh(v, f, process=False).subdivide()
+    _, after, _ = _check_lossless(mesh.vertices, mesh.faces)
+    top = _flat_faces(after, 2.0)
+    assert top.sum() == len(np.unique(after.faces[top])) - 2
+
+
+def test_hole_touching_the_outer_boundary():
+    # A block on a plate whose corner touches the plate's edge: the plate's
+    # top is one region whose boundary passes twice through that vertex.
+    mfd = pytest.importorskip("manifold3d")
+    plate = mfd.Manifold.cube((10, 10, 1))
+    block = mfd.CrossSection([[(0.0, 5.0), (4.0, 3.0), (4.0, 7.0)]]).extrude(1).translate((0, 0, 1))
+    v, f = _manifold_mesh(plate + block)
+    mesh = trimesh.Trimesh(v, f, process=False).subdivide().subdivide()
+    _, after, _ = _check_lossless(mesh.vertices, mesh.faces)
+    top = _flat_faces(after, 1.0)
+    np.testing.assert_allclose(after.area_faces[top].sum(), 100 - 8, rtol=1e-12)
+    assert top.sum() == 6  # outline: 4 corners + 3 block corners, one visited twice
+
+
+def test_region_with_hole_is_minimal():
+    vertices, faces = _courtyard_prism()
+    _, after, _ = _check_lossless(vertices, faces)
+    roof = _flat_faces(after, 9.5)
+    # 8 vertices and one hole: 8 + 2 - 2 triangles.
+    assert roof.sum() == 8
+    np.testing.assert_allclose(after.area_faces[roof].sum(), 30 * 20 - 10 * 10, rtol=1e-12)
+
+
+def test_collinear_boundary_vertices_are_kept():
+    # With the walls left alone (too few faces to be candidates) every vertex
+    # on the top's straight edges is shared with them and must stay: the top
+    # is triangulated over all of its collinear boundary points and nothing else.
+    vertices, faces = array_to_mesh(np.ones((12, 12)), floor_val=0)
+    before = trimesh.Trimesh(vertices, faces, process=False)
+    wall_faces = int((np.abs(before.face_normals[:, 0]) > 0.9).sum() / 2)
+    new_faces = simplify_mesh_surfaces(vertices, faces, min_faces=wall_faces + 1)
+    after = trimesh.Trimesh(vertices, new_faces, process=False)
+    after.remove_unreferenced_vertices()
+    assert after.is_watertight and after.is_winding_consistent
+    np.testing.assert_allclose(after.volume, before.volume, rtol=1e-9)
+
+    top_before = faces[before.face_normals[:, 2] > 0.999]
+    edges = np.sort(top_before[:, [0, 1, 1, 2, 2, 0]].reshape(-1, 2), axis=1)
+    edges, uses = np.unique(edges, axis=0, return_counts=True)
+    rim = np.unique(edges[uses == 1])  # 4 * 11 points on the top's straight edges
+    top_after = new_faces[
+        trimesh.Trimesh(vertices, new_faces, process=False).face_normals[:, 2] > 0.999
+    ]
+    # No boundary point dropped, no interior point kept, no fan left over.
+    np.testing.assert_array_equal(np.unique(top_after), rim)
+    assert len(top_after) == len(rim) - 2 < len(top_before)
+
+
+def _city_like(seed=7, n=40):
+    mfd = pytest.importorskip("manifold3d")
+    rng = np.random.default_rng(seed)
+    y, x = np.mgrid[0:60, 0:80]
+    A = 3 + 0.02 * x + 0.3 * np.sin(y / 7.0)
+    A[5:55, 5:75] = 4.0  # flat district
+    v, f = array_to_mesh(A, floor_val=0)
+    solid = mfd.Manifold(
+        mfd.Mesh64(
+            vert_properties=np.ascontiguousarray(v, dtype=np.float64),
+            tri_verts=np.ascontiguousarray(f, dtype=np.uint64),
+        )
+    )
+    for _ in range(n):
+        w, d = rng.uniform(2, 9, 2)
+        h = rng.choice([6.0, 9.5, 12.0, rng.uniform(5, 20)])  # repeated heights: coplanar roofs
+        box = mfd.Manifold.cube((w, d, h)).translate((-w / 2, -d / 2, 0.0))
+        if rng.random() < 0.4:
+            box = box.rotate((0.0, 0.0, float(rng.uniform(0, 90))))
+        cx, cy = rng.uniform(8, 72), rng.uniform(8, 52)
+        # Snap some to a 2 mm grid so neighbours share walls and edges.
+        if rng.random() < 0.5:
+            cx, cy = np.round(cx / 2) * 2, np.round(cy / 2) * 2
+        solid = solid + box.translate((cx, cy, 3.5))
+    return _manifold_mesh(solid)
+
+
+@pytest.mark.parametrize("seed, n", [(7, 40), (33, 80)])  # 33: solids touching at a point
+def test_city_like_union_of_prisms(seed, n):
+    vertices, faces = _city_like(seed, n)
+    before, after, new_faces = _check_lossless(vertices, faces)
+    assert len(new_faces) < 0.5 * len(faces)
+
+
+def test_simplify_does_not_use_triangle():
+    import ast
+    from pathlib import Path
+
+    import numpy2stl.processing.simplify as mod
+
+    tree = ast.parse(Path(mod.__file__).read_text(encoding="utf-8"))
+    imported = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported |= {a.name.split(".")[0] for a in node.names}
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+    assert "triangle" not in imported

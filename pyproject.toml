@@ -21,7 +21,7 @@ classifiers = [
 ]
 dependencies = [
     "numpy>=1.24",
-    "shapely>=2.0",
+    "shapely>=2.1",  # constrained_delaunay_triangles
     "scipy>=1.9",
     "triangle>=20200424",
 ]
