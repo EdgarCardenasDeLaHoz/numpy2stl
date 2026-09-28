@@ -1,6 +1,6 @@
 import struct
-import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Iterator
 
 __all__ = ["writeSTL", "write3MF", "writeOBJ"]
 
@@ -57,63 +57,66 @@ def writeSTL(facets, file_name, ascii=False):
     f.close()
 
 
-def write3MF(file_name, models):
-    # Create the root <model> element
-    root = ET.Element(
-        "model",
-        {
-            "unit": "millimeter",
-            "xml:lang": "en-US",
-            "xmlns": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02",
-        },
-    )
+_3MF_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
+_3MF_RELS = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
+    '<Relationship Target="/3D/3dmodel.model" Id="rel1" '
+    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />\n'
+    "</Relationships>"
+)
+_3MF_CONTENT_TYPES = (
+    '<?xml version="1.0" encoding="UTF-8"?>\n'
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />\n'
+    '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />\n'
+    "</Types>"
+)
+_3MF_CHUNK = 200_000   # rows formatted per write
 
-    resources = ET.SubElement(root, "resources")
-    build = ET.SubElement(root, "build")
 
-    for i, (name, (vertices, faces)) in enumerate(models.items(), start=1):
-        obj = ET.SubElement(resources, "object", {"id": str(i), "name": name, "type": "model"})
-        mesh = ET.SubElement(obj, "mesh")
+def _rows(fmt: str, arr) -> "Iterator[bytes]":
+    """``fmt % row`` for each row of ``arr``, in encoded chunks."""
+    import numpy as np
 
-        verts_elem = ET.SubElement(mesh, "vertices")
-        for v in vertices:
-            ET.SubElement(
-                verts_elem, "vertex", {"x": f"{v[0]:.4f}", "y": f"{v[1]:.4f}", "z": f"{v[2]:.4f}"}
-            )
+    a = np.asarray(arr)
+    for i in range(0, len(a), _3MF_CHUNK):
+        yield "".join(map(fmt.__mod__, map(tuple, a[i:i + _3MF_CHUNK].tolist()))).encode()
 
-        triangles_elem = ET.SubElement(mesh, "triangles")
-        for f in faces:
-            ET.SubElement(
-                triangles_elem, "triangle", {"v1": str(f[0]), "v2": str(f[1]), "v3": str(f[2])}
-            )
 
-        ET.SubElement(build, "item", {"objectid": str(i)})
+def write3MF(file_name, models, compresslevel: int = 1):
+    """Write ``{name: (vertices, faces)}`` as one 3MF package, one object per entry.
 
-    xml_content = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+    The model XML is streamed into the zip in chunks with plain string
+    formatting (vertices to 0.1 um): building an ElementTree node per vertex and
+    triangle took ~30 s for a 3 M-triangle city model. ``compresslevel`` is
+    zlib's (1 = fastest; the XML still shrinks ~4x).
+    """
+    from xml.sax.saxutils import quoteattr
 
-    with zipfile.ZipFile(file_name, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(file_name, "w", compression=zipfile.ZIP_DEFLATED,
+                         compresslevel=compresslevel) as zf:
         # 1. The Model
-        zf.writestr("3D/3dmodel.model", xml_content)
-
-        # 2. Corrected Relationships
-        rels_content = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">\n'
-            '<Relationship Target="/3D/3dmodel.model" Id="rel1" '
-            'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />\n'
-            "</Relationships>"
-        )
-        zf.writestr("_rels/.rels", rels_content)
-
-        # 3. Content Types (Crucial for full compatibility)
-        content_types = (
-            '<?xml version="1.0" encoding="UTF-8"?>\n'
-            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">\n'
-            '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />\n'
-            '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />\n'
-            "</Types>"
-        )
-        zf.writestr("[Content_Types].xml", content_types)
+        with zf.open("3D/3dmodel.model", "w", force_zip64=True) as out:
+            out.write(("<?xml version='1.0' encoding='utf-8'?>\n"
+                       f'<model unit="millimeter" xml:lang="en-US" xmlns="{_3MF_NS}">'
+                       "<resources>").encode())
+            for i, (name, (vertices, faces)) in enumerate(models.items(), start=1):
+                out.write(f'<object id="{i}" name={quoteattr(str(name))} type="model">'
+                          "<mesh><vertices>".encode())
+                for chunk in _rows('<vertex x="%.4f" y="%.4f" z="%.4f" />', vertices):
+                    out.write(chunk)
+                out.write(b"</vertices><triangles>")
+                for chunk in _rows('<triangle v1="%d" v2="%d" v3="%d" />', faces):
+                    out.write(chunk)
+                out.write(b"</triangles></mesh></object>")
+            out.write(b"</resources><build>")
+            out.write("".join(f'<item objectid="{i}" />'
+                              for i in range(1, len(models) + 1)).encode())
+            out.write(b"</build></model>")
+        # 2. Relationships, 3. Content types (both needed by strict readers)
+        zf.writestr("_rels/.rels", _3MF_RELS)
+        zf.writestr("[Content_Types].xml", _3MF_CONTENT_TYPES)
 
     import logging as _logging
 

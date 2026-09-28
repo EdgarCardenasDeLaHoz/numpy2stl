@@ -90,6 +90,28 @@ class TestWrite3MF:
             objects = root.findall(".//m:object", ns)
             assert len(objects) == 2
 
+    def test_round_trip_values_and_escaped_names(self, tmp_3mf_file):
+        """The streamed XML parses and carries every vertex (0.1 um) and triangle."""
+        import xml.etree.ElementTree as ET
+        import zipfile
+
+        import numpy as np
+
+        rng = np.random.default_rng(0)
+        v = rng.uniform(-50, 300, (500, 3))
+        f = rng.integers(0, 500, (900, 3))
+        write3MF(str(tmp_3mf_file), {'a & "b" <c>': (v, f), "second": (v[:3], f[:1] % 3)})
+        with zipfile.ZipFile(tmp_3mf_file) as zf:
+            root = ET.fromstring(zf.read("3D/3dmodel.model"))
+        ns = {"m": "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"}
+        objs = root.findall(".//m:object", ns)
+        assert [o.get("name") for o in objs] == ['a & "b" <c>', "second"]
+        got_v = np.array([[float(e.get(k)) for k in "xyz"] for e in objs[0].iter(f"{{{ns['m']}}}vertex")])
+        got_f = np.array([[int(e.get(k)) for k in ("v1", "v2", "v3")]
+                          for e in objs[0].iter(f"{{{ns['m']}}}triangle")])
+        assert np.allclose(got_v, v, atol=5e-5) and (got_f == f).all()
+        assert [i.get("objectid") for i in root.findall(".//m:item", ns)] == ["1", "2"]
+
     def test_empty_models(self, tmp_3mf_file):
         """Test error handling for empty models dict."""
         models = {}
