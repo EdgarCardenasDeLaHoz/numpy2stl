@@ -13,7 +13,7 @@ causes.  Where the STL segmentation is clean (Barcelona, Paris) the classic
 search finds the right transform; where it is wrong (Valencia overlap-IoU 0.025,
 Salzburg 0.039, Miami 0.155) no amount of search fixes it.  That makes
 segmentation the axis worth replacing, and a single seam makes it replaceable
-and measurable (`_align_tool/eval_registration.py` reports segmentation IoU
+and measurable (`map2stl/tools/align_tool/eval_registration.py` reports segmentation IoU
 separately from registration quality for exactly this reason).
 
 OSM masks never route through the producer.  `building_mask(source='osm')` is

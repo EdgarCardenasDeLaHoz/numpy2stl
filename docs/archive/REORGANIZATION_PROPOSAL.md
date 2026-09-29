@@ -1,5 +1,7 @@
 # numpy2stl Reorganization Proposal
 
+> **Historical (archived 2026-09-28).** A plan from June 2026, since carried out and superseded. File names in *italics* no longer exist (removed wrappers, a dropped `oceans` module, a test layout that was not adopted). Current layout: [numpy2stl README](../../README.md).
+
 ## ✅ DECISION: Option A Confirmed
 
 **Status**: Ready for implementation in next session (requires fresh token budget)
@@ -318,13 +320,13 @@ from numpy2stl.stl2numpy import (
 | `generate.py` | `core/generate.py` | Core mesh generation |
 | `solid.py` | `core/solid.py` | Essential mesh utilities |
 | `polygon.py` | `core/polygon.py` | Core 2D operations |
-| `save.py` | `io/writers.py` | File output |
+| *save.py* | `io/writers.py` | File output |
 | `simplify.py` | `processing/simplify.py` | Optional advanced feature |
 | `boolean.py` | `processing/boolean.py` | Requires pymeshlab |
 | `verify.py` | `processing/verify.py` | Requires trimesh |
-| `tools.py` | `utils/image.py` | Helper utilities |
-| `view.py` | `utils/visualization.py` | Plotting helpers |
-| `oceans.py` | `applications/oceans.py` | Domain-specific |
+| *tools.py* | `utils/image.py` | Helper utilities |
+| *view.py* | `utils/visualization.py` | Plotting helpers |
+| *oceans.py* | *applications/oceans.py* | Domain-specific |
 | `puzzle.py` | **SPLIT**: `processing/extrusion.py` + `applications/puzzle.py` | General tools + domain-specific |
 
 ### New Files to Create

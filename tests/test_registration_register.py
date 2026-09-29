@@ -142,7 +142,7 @@ class TestScaleSelectionRobustness:
     shape in ways that don't reflect the actual bug). Instead this test
     exercises the exact decision logic that was changed, directly on a
     `scale_metrics`-shaped dict mirroring the real Miami sweep data
-    (docs/plans/F-MESHIMPORT-stl-obj-layer-import.md's investigation) —
+    (map2stl/docs/plans/done/F-MESHIMPORT-stl-obj-layer-import.md's investigation) —
     Dice/IoU with a sharp peak away from the sweep edge, xcorr flat/peaked at
     the boundary.
     """

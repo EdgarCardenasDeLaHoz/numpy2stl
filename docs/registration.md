@@ -1,55 +1,53 @@
-# numpy2stl — City STL Registration
+# numpy2stl — city STL registration (usage)
 
-Register a city 3D mesh against a building-height raster (normally OpenStreetMap)
-to find the alignment and compare dataset quality.
+Register a city 3D mesh against a building-height raster (normally OpenStreetMap) to
+find the alignment and compare the two datasets' heights.
 
-numpy2stl is geo-free: it does not fetch OSM. `register_city_stl(stl_file, reference)`
-takes a `numpy2stl.registration.ReferenceSource` (or a `StaticReference` over arrays
-you already have). To register against a city name or bbox, use map2stl's
-`city2stl.registration.register_city_stl(stl_file, city_name, ...)`, which builds the
-OSM source (`city2stl.osm_raster`) and takes the arguments shown below.
+- **Design, stages, why each choice, assumption audit:**
+  [registration ARCHITECTURE.md](../src/numpy2stl/registration/docs/ARCHITECTURE.md).
+- **Library overview:** [numpy2stl README](../README.md).
 
-> **Architecture & module map:** see
-> [`registration/docs/ARCHITECTURE.md`](../registration/docs/ARCHITECTURE.md) for the
-> subpackage layout, the pipeline stages, the key algorithm decisions, and the
-> hardcode/assumption audit (how to run on a city not in the built-in config).
+## Who does what
 
-**Works on any city** (map2stl wrapper). Cities not in the built-in config geocode their centre
-automatically; pass `tallest_m=` or `scale_m_per_unit=` (CLI `--tallest-m` /
-`--scale-m-per-unit`) for a tight, well-scaled OSM fetch, or `center=` / `--center
-LAT,LON` to set the downtown point explicitly.
+- numpy2stl is geo-free: `register_city_stl(stl_file, reference, ...)` takes a
+  `numpy2stl.registration.ReferenceSource`, or a `StaticReference` over arrays you
+  already have. It never fetches OSM.
+- map2stl wraps it for real cities:
+  - `city2stl.registration.register_city_stl(stl_file, city_name, ...)` builds an
+    `OSMReference` (over `city2stl.osm_raster`) and calls numpy2stl.
+  - OSM rasters: `city2stl.osm_raster.get_osm_building_heightmap`,
+    `get_osm_semantic_masks`, `get_philadelphia_heightmap`.
+  - CLI: `python -m city2stl.registration.scripts.run_registration --stl PATH --region "City, ST"`
+    (also `benchmark_micropolitan`, `robustness_test`).
+- **Any city works** through the map2stl wrapper: cities outside its built-in config
+  geocode their centre. Pass `tallest_m=` or `scale_m_per_unit=` (CLI `--tallest-m`,
+  `--scale-m-per-unit`) for a tight, well-scaled OSM fetch, or `center=` (`--center LAT,LON`)
+  to set the downtown point.
 
----
+## Quick start
 
-## Quick Start
+With map2stl (fetches OSM):
 
 ```python
-from city2stl.registration import register_city_stl   # map2stl: fetches OSM
+from city2stl.registration import register_city_stl
 
-# Full pipeline + write HTML report to ./report/
 report = register_city_stl(
     stl_file="philadelphia.stl",
     city_name="Philadelphia, PA, USA",
     resolution=512,
-    height_scale=None,    # auto-estimate STL units → metres
-    out_dir="./report",   # writes index.html + assets/
+    height_scale=None,     # auto-estimate STL units -> metres
+    out_dir="./report",    # index.html + assets/
 )
-
-# report is a CityRegistrationReport dataclass
-print(report.registration.confidence)   # raw FFT xcorr peak amplitude — an internal
-                                         # search diagnostic, NOT a match-quality score
-                                         # (no defined ceiling; see "Reading the metrics")
-print(report.comparison.match_score)    # 0–1 composite match-quality score; the
-                                         # number to actually look at (see below)
-print(report.registration.scale)        # spatial scale factor found
-print(report.registration.angle_deg)    # rotation found (degrees)
-print(f"RMSE: {report.comparison.rmse:.1f} m")
-print(f"Bias: {report.comparison.bias:+.1f} m  (+ = STL taller than OSM)")
-print(f"Coverage: {report.comparison.coverage_pct:.1f}%")
+print(report.comparison.match_score)   # 0–1 composite match quality: the number to read
+print(report.registration.scale, report.registration.angle_deg)
+print(f"RMSE {report.comparison.rmse:.1f} m, bias {report.comparison.bias:+.1f} m, "
+      f"coverage {report.comparison.coverage_pct:.1f}%")
 ```
 
-Without map2stl, pass the reference raster yourself (row 0 = south, NaN = no
-building):
+- `report.registration.confidence` is the raw FFT cross-correlation peak: a search
+  diagnostic with no defined ceiling, **not** a match-quality score.
+
+numpy2stl only (reference raster in hand; row 0 = south, NaN = no building):
 
 ```python
 from numpy2stl.registration import StaticReference, register_city_stl
@@ -58,255 +56,154 @@ ref = StaticReference(osm_heightmap, cell_size_m=2.0, name="philadelphia")
 report = register_city_stl("philadelphia.stl", ref, resolution=512, out_dir="./report")
 ```
 
----
-
-## Step-by-Step Usage
+## Step by step
 
 ```python
 from numpy2stl.stl2numpy import mesh_to_heightmap
+from numpy2stl.registration import register, apply_transform, compare
 from city2stl.osm_raster import get_osm_building_heightmap   # map2stl
-from numpy2stl.registration.align import register, apply_transform
-from numpy2stl.registration.compare import compare
 
-# 1. STL → 2D heightmap (arbitrary coordinates, unknown scale)
+# 1. STL -> heightmap (arbitrary units); registration rasters are row 0 = south
 stl = mesh_to_heightmap("city.stl", resolution=512, projection="max", row0="south")
 
-# 2. OSM building heights for the same city
+# 2. Reference building heights (or any (rows, cols) array, NaN = no building)
 osm = get_osm_building_heightmap("Philadelphia, PA, USA", resolution=512)
-# Or use a hardcoded bbox: get_osm_building_heightmap((40.06, 39.86, -74.95, -75.28))
 
-# 3. Register: find translation + rotation + scale
+# 3. Similarity transform (scale + rotation + translation)
 reg = register(stl["heightmap"], osm["heightmap"], max_scale_ratio=5.0)
-print(reg["transform"])          # 2×3 affine matrix
-print(reg["confidence"])         # ECC correlation coefficient
+print(reg["transform"], reg["scale"], reg["angle_deg"])
 
-# 4. Warp STL into OSM pixel space
-stl_aligned = apply_transform(
-    stl["heightmap"], reg["transform"],
-    output_shape=osm["heightmap"].shape,
-)
+# 4. Warp the STL into reference pixel space
+aligned = apply_transform(stl["heightmap"], reg["transform"],
+                          output_shape=osm["heightmap"].shape)
 
-# 5. Compare heights (auto-estimate STL unit → metres scaling)
-comp = compare(stl_aligned, osm["heightmap"], height_scale=None)
+# 5. Compare heights (auto-fit STL units -> metres)
+comp = compare(aligned, osm["heightmap"], height_scale=None)
 print(comp.rmse, comp.bias, comp.coverage_pct)
-
-# 6. Write report manually
-from numpy2stl.registration.html_report import write_registration_report
-from numpy2stl.registration.types import (
-    CityRegistrationReport, RegistrationResult, ComparisonResult
-)
 ```
 
----
+- The report writer is `numpy2stl.registration.write_registration_report(out_dir, report)`;
+  it takes a full `CityRegistrationReport`, so in practice use `register_city_stl`.
 
-## Named Cities (map2stl `city2stl.osm_raster`)
+## Parameters
 
-```python
-from city2stl.osm_raster import get_philadelphia_heightmap
-
-osm = get_philadelphia_heightmap(resolution=512)
-```
-
-Adding more cities: copy the `get_philadelphia_heightmap` pattern with a
-hardcoded `(N, S, E, W)` bbox, or use any city name string:
-
-```python
-from city2stl.osm_raster import get_osm_building_heightmap
-
-osm = get_osm_building_heightmap("Seattle, WA, USA", resolution=512)
-```
-
-Currently named wrappers: `get_philadelphia_heightmap`.
-
----
-
-## Parameters Reference
-
-### `register_city_stl(stl_file, city_name, ...)` (map2stl `city2stl.registration`)
-
-`city_name`, `default_height`, `levels_to_meters`, `center`, `tallest_m` and
-`scale_m_per_unit` build the OSM source; everything else is passed to numpy2stl's
-`register_city_stl(stl_file, reference, ...)`, which also takes `height_source`
-(`"osm"` / `"lidar"`), `center_search` and `region_name`.
+### `register_city_stl` (numpy2stl)
 
 | Parameter | Default | Description |
 |---|---|---|
-| `stl_file` | — | Path to city STL (no geographic metadata required) |
-| `city_name` | — | City name string or `(N, S, E, W)` bbox tuple |
-| `resolution` | `1024` | Output grid size for the comparison/report heightmaps (square). The registration **search** is fixed at `REGISTER_RES=512` and resolution-independent, so raising this only sharpens the footprint/agreement images (more agreement pixels), without changing the transform or the search cost. |
-| `default_height` | `10.0` | Fallback OSM building height (metres) |
-| `levels_to_meters` | `3.5` | OSM `building:levels` × this = metres |
-| `max_scale_ratio` | `5.0` | Maximum spatial scale search range |
-| `height_scale` | `None` | STL model units → metres. `None` = auto-estimate. |
-| `stl_z_axis` | `2` | Which mesh axis is elevation (default 2 = Z) |
-| `out_dir` | `None` | If given, writes HTML report here |
-| `simplify_mesh` | `False` | Alias for `simplify_mode="decimate"`. |
-| `simplify_mode` | `"off"` | `"decimate"` = footprint-preserving quadric decimation; `"prism"` = decompose the STL into a sum of extruded prisms (reverse of the OSM render) for the comparison. Registration always uses the original mesh. |
-| `simplify_tol_m` | `3.5` | Surface-deviation budget (metres) for `simplify_mesh`. Larger = more detail removed. |
-| `save_simplified` | `None` | Write the simplified mesh here (STL/3MF/OBJ by extension). |
-| `regularize_footprints` | `False` | Watershed-split merged buildings + snap footprint polygons to rectilinear edges. |
-| `refine_polygons` | `False` | Polygon-matched ICP fine-tuning of the transform (only when footprint Dice > 0.95). |
-| `decimation_curve` | `False` | Add the decimation trade-off curve (deviation vs faces kept) to the report. Re-decimates a few times; adds ~30 s. |
-| `registration_method` | `"raster"` | `"raster"` (gradient + xcorr + edge-IoU) or `"polygon"` (match building footprints directly; auto-falls back to raster when match confidence is low). |
-| `free_scale` | `False` | Un-lock scale: refine within ±10% of the geometric anchor. The anchor is geometrically exact, so this usually drifts — off by default. |
+| `stl_file` | — | City STL / 3MF / OBJ; no geographic metadata needed |
+| `reference` | — | `ReferenceSource` (map2stl `OSMReference`, or `StaticReference`) |
+| `resolution` | `1024` | Output grid for comparison / report images. The **search** always runs at `REGISTER_RES` (512), so this sharpens images only; transform and search cost are unchanged |
+| `max_scale_ratio` | `5.0` | Spatial scale search range |
+| `height_scale` | `None` | STL units -> metres; `None` = auto-fit |
+| `stl_z_axis` | `2` | Mesh axis that is elevation |
+| `out_dir` | `None` | Report folder; default `Code/_reports/{region}/`; `False` = no files |
+| `forced_rotation` / `forced_scale` | `None` | Pin rotation (deg) / scale; CLI `--rotation` |
+| `height_source` | `"osm"` | `"lidar"`: per-footprint median of `reference.ndsm()` (falls back to reference heights) |
+| `simplify_mode` | `"off"` | `"decimate"` (footprint-preserving quadric) or `"prism"` (sum of extruded prisms); feeds comparison only, registration uses the original mesh |
+| `simplify_mesh` | `False` | Alias for `simplify_mode="decimate"` |
+| `simplify_tol_m` | `3.5` | Deviation budget (m) for simplification |
+| `save_simplified` | `None` | Write the simplified mesh (STL / 3MF / OBJ by extension) |
+| `regularize_footprints` | `False` | Watershed-split merged buildings + rectilinear footprint snapping |
+| `refine_polygons` | `False` | Polygon-ICP fine-tune, only when footprint Dice > 0.95 |
+| `decimation_curve` | `False` | Add the deviation-vs-faces-kept curve to the report (~30 s) |
+| `registration_method` | `"raster"` | `"polygon"`: match footprints directly; auto-falls back to raster at low confidence |
+| `free_scale` | `False` | Refine scale within ±10% of the geometric anchor; usually drifts, so off |
+| `center_search` | `"never"` | `"auto"` / `"always"`: score the reference's candidate frames. Off because the lock gate does not yet tell right from wrong centres |
+| `region_name` | `reference.name` | Report title and default output folder |
+
+### map2stl `city2stl.registration.register_city_stl` extras
+
+- `city_name` (name or `(N, S, E, W)` bbox), `center`, `tallest_m`,
+  `scale_m_per_unit`, `default_height` (10 m), `levels_to_meters` (3.5) build the OSM
+  reference; everything else passes through to numpy2stl.
 
 ### `register(source, target, ...)`
 
 | Parameter | Default | Description |
 |---|---|---|
-| `max_scale_ratio` | `5.0` | Maximum spatial scale search range (source may be up to 5× larger or smaller than target) |
-| `ecc_motion_type` | `MOTION_AFFINE` | OpenCV motion model. AFFINE handles scale + rotation + translation. |
-| `ecc_iterations` | `1000` | ECC maximum iterations |
-| `ecc_eps` | `1e-6` | ECC convergence threshold |
-| `gaussian_blur_for_ecc` | `2.0` | Pre-ECC blur sigma — **do not set to 0**, ECC fails without smoothing |
+| `max_scale_ratio` | `5.0` | Scale search range |
+| `known_scale` | `None` | Geometric scale anchor; the search refines around it |
+| `scale_search` | `0.35` | Half-width of the scale refinement |
+| `cell_size_m` | `None` | Metres per pixel (metre-based kernels) |
+| `forced_rotation` | `None` | Skip rotation search |
+| `source_mask` / `source_exclude_mask` | `None` | STL building mask / cells to treat as non-building (vegetation, hillside, water) |
+| `free_scale` | `False` | As above |
 
-### `compare(stl_aligned, osm, height_scale=None)`
+- Returns a dict: `transform` (2×3), `confidence`, `scale`, `angle_deg`, `converged`,
+  `n_iterations`, plus diagnostic sweeps for the report.
 
-| Parameter | Description |
-|---|---|
-| `height_scale` | Multiply STL values by this to get metres. `None` = auto from median ratio of overlap region. Pass an explicit value if you know the STL units (e.g., `0.001` if STL is in mm). |
+### `compare(stl_aligned, osm, height_scale=1.0, height_offset=None, height_agg="p95")`
 
----
+- `height_scale`: multiply STL values by this for metres (default 1.0 = already metres).
+  `None` least-squares fits `stl_m = scale·stl + offset` over the overlap; pass a value
+  if you know the units (`0.001` for mm). `register_city_stl` passes `None` by default.
+  - *Why an intercept:* it absorbs base-plate / terrain-estimate bias that a
+    through-origin fit would push into the slope.
+- `height_agg`: per-footprint aggregate of the STL (`"p95"`, `"median"`, `"max"`, `"pNN"`).
+  p95 because OSM stores one tip height per footprint.
 
-## Output Structure
-
-`register_city_stl()` returns a `CityRegistrationReport` frozen dataclass:
-
-```
-report.region_name          str
-report.stl_file             str
-report.stl_heightmap        ndarray (rows, cols)
-report.osm_heightmap        ndarray (rows, cols)
-report.stl_aligned          ndarray — STL warped into OSM pixel space
-report.step_timings         list[(step_name, wall_seconds)]
-
-report.registration         RegistrationResult
-  .transform                ndarray (2,3) affine warp matrix
-  .confidence               float 0–1 (ECC correlation coefficient)
-  .scale                    float spatial scale found
-  .angle_deg                float rotation found (degrees)
-  .converged                bool
-
-report.comparison           ComparisonResult
-  .difference               ndarray (rows, cols) — STL_m − OSM, NaN outside overlap
-  .overlap_mask             ndarray bool
-  .missing_in_osm           ndarray bool — in STL, not in OSM
-  .missing_in_stl           ndarray bool — in OSM, not in STL
-  .rmse                     float metres
-  .mae                      float metres
-  .bias                     float metres (positive = STL buildings taller)
-  .correlation              float Pearson r
-  .coverage_pct             float %
-  .n_overlap                int
-  .height_scale_used        float
-```
-
----
-
-## HTML Report Output
-
-`write_registration_report(out_dir, report)` produces:
+## Output: `CityRegistrationReport`
 
 ```
-out_dir/
-├── index.html                # Summary page with all stats + embedded figures
-└── assets/
-    ├── comparison.png        # 3-panel: STL | OSM | difference (canonical figure)
-    ├── decimation.png        # (simplify_mode=decimate) original | simplified | difference (m)
-    ├── decimation_curve.png  # (decimation_curve) surface deviation vs faces kept, budget marked
-    ├── prism.png             # (simplify_mode=prism) original | prism model | difference (m)
-    ├── binarization.png      # 2x3: STL/OSM heightmap -> binary mask -> edges
-    ├── mask_overlay.png      # Footprint agreement (green/orange/blue)
-    ├── matched_buildings.png # Per-building height scatter + error map
-    ├── stl_heightmap.png     # STL projection (viridis, NaN=gray)
-    ├── osm_heightmap.png     # OSM building heights (viridis, NaN=white)
-    ├── stl_aligned.png       # STL aligned vs OSM side-by-side
-    ├── difference_hist.png   # Histogram of height differences
-    ├── missing_analysis.png  # 2-panel: missing_in_osm | missing_in_stl
-    └── transform_summary.png # Registration transform parameters
+report.region_name, .stl_file, .step_timings [(step, seconds)]
+report.stl_heightmap / .osm_heightmap / .stl_aligned   (rows, cols)
+report.cell_size_m, .osm_bbox, .stl_building_mask
+
+report.registration  RegistrationResult
+  .transform (2,3)  .scale  .angle_deg  .confidence (raw xcorr peak)  .converged  .projection
+
+report.comparison    ComparisonResult
+  .match_score (0–1 composite) + .match_score_components
+  .footprint_iou  .dice_score  .overlap_iou  .overlap_precision  .edge_lift  .height_corr
+  .rmse  .mae  .bias (+ = STL taller)  .correlation (Pearson)  .rank_correlation (Spearman)  .mape
+  .coverage_pct  .n_overlap  .height_scale_used  .height_offset_used
+  .difference / .building_diff_map   STL_m − OSM, NaN outside overlap
+  .missing_in_osm / .missing_in_stl  bool masks
 ```
 
-The `index.html` includes:
-- Registration parameters table (edge IoU + lift, projection, scale, rotation)
-- 3-panel comparison image
-- **Binarization panel** — heightmaps → binary masks → edges (the registration signal)
-- Footprint agreement overlay (green = both, orange = STL only, blue = OSM only)
-- Matched-buildings height scatter + per-building error map
-- Detail plots (difference histogram, missing analysis)
-- Pipeline timing table + bar chart
+- Use `footprint_iou` (union IoU), not `dice_score`, as the registration-quality number.
 
----
+## HTML report
 
-## Algorithm Notes
+`index.html` plus `assets/*.png` inside `out_dir`, sections in pipeline order:
 
-> Full detail, the rationale for each decision, and a survey of standard
-> image-registration techniques we could adopt are in
-> [`registration/docs/ARCHITECTURE.md`](../registration/docs/ARCHITECTURE.md).
-> This is the short version.
+- Inputs: `stl_heightmap`, `osm_heightmap`, `stl_aligned`.
+- Registration: `transform_summary`, `binarization` (heightmaps -> masks -> edges, the
+  registration signal), `angle_hist`, `scale_sweep`, `rot_sweep`, `xcorr_map`, `vectorized`.
+- Agreement: `mask_overlay` (green both / orange STL only / blue OSM only),
+  `footprint_rgchannel`, `matched_buildings` (per-building scatter + error map).
+- Heights: `comparison` (STL | OSM | difference), `corrected_difference`,
+  `difference_hist`, `missing_analysis`.
+- Simplification (when enabled): `decimation`, `decimation_curve`, `prism`.
+- Timing table.
 
-The pipeline is a **similarity registration** (uniform scale + rotation +
-translation, no shear) of two height rasters — the STL and the OSM building-height
-raster — done **resolution-independently** (the search runs at a fixed 512 grid;
-the transform is scaled to the output resolution).
+## Reading the metrics
 
-1. **Rotation — from the image gradient.** Sobel on the Gaussian-high-pass height
-   field gives a magnitude-weighted orientation histogram (`gradient_angle_histogram`);
-   the STL→OSM rotation is the histogram cross-correlation peak. This is
-   *segmentation-independent* (no masks/Hough lines). The 90° grid ambiguity is
-   resolved with a **bias toward 0°**, overridden only by a clearly-better height
-   correlation, or by a manual `--rotation`.
-2. **Scale — raw-height xcorr peak.** A scale sweep picks the scale that maximises
-   the normalized height cross-correlation (not footprint overlap, which inflates).
-3. **Translation — FFT cross-correlation peak.**
-4. **Refine — ECC** on building signed-distance fields, projected to a similarity
-   transform (shear removed) with the scale pinned.
-5. **Compare — per building.** STL height-above-terrain vs OSM height-above-ground,
-   aggregated per OSM footprint by **p95** (tip height, matching OSM's single stated
-   height), with fill-default and outlier footprints excluded, fit by
-   `stl_m = scale·stl + offset`.
+- **`match_score`** is the summary number (overlap IoU, overlap precision, edge lift,
+  height correlation combined).
+- **Footprint Dice ≈ 0.99** only confirms gross overlap: dense masks overlap regardless.
+- **Per-building r / ρ** is the real height-quality signal (per building, at p95).
+- **Height ratio ≈ 1.0** means the STL -> metres scale matches OSM tip heights.
+- **Rotation ≈ 0°** for north-aligned grids; a confident large value (Denver ≈ 45°) is a
+  genuinely rotated grid.
 
-### Reading the metrics
+## Known limitations
 
-- **Footprint Dice** (≈0.99) confirms the footprints overlap — but it's a weak
-  signal (dense masks overlap regardless), useful mainly to catch gross failure.
-- **Per-building height correlation (Pearson r, Spearman ρ)** is the real quality
-  signal now that heights are compared per-building at the tip (p95).
-- **Height ratio ≈ 1.0** means the STL→metres scale matches OSM tip heights.
-- **Rotation should be ≈0°** for north-aligned grid cities; a confident large value
-  (e.g. Denver ≈45°) reflects a genuinely rotated grid.
-
-### height_scale semantics
-
-The STL Z axis is in model units. `height_scale` converts to metres
-(`stl_metres = stl_aligned × height_scale`). Because STL heights are noisy, this
-calibration is approximate. The spatial XY scale is found by the registration
-search; `height_scale` only affects the Z comparison in `compare()`.
-
-### Known limitation: local distortion
-
-A single global transform aligns the centre well but can leave residual drift at
-the edges of the frame (the STL may have a non-uniform distortion relative to the
-flat OSM map). A piecewise / non-rigid refinement is a possible future step.
-
----
-
-## OSM Data Quality Notes
-
-OSM building coverage for Philadelphia:
-- **Center City**: excellent footprint + `height`/`building:levels` coverage
-- **Row-house neighborhoods**: good footprints, sparse height tags → falls back
-  to `default_height=10.0 m`
-
-Buildings in `comparison.missing_in_osm` represent either new construction or OSM
-data gaps. The high-detail STL source is the authoritative record for those areas.
-
----
+- One global similarity transform: the centre aligns well, edges can drift if the STL
+  is non-uniformly distorted relative to the flat map.
+- Rotation auto-detection needs a dominant grid; radial cities (Paris) need
+  `forced_rotation` / `--rotation`, off-centre tiles need `center=`.
+- OSM height tags are sparse outside downtowns (Philadelphia row-house blocks fall back
+  to `default_height` = 10 m); those footprints are excluded from the height fit.
+  `missing_in_osm` marks new construction or OSM gaps.
 
 ## Installation
 
 ```bash
-pip install numpy2stl[registration]
-# Installs: osmnx, geopandas, rasterio, opencv-python, scikit-image, scipy
+pip install -e ".[registration]"   # matplotlib, rasterio, opencv-python, scikit-image
+pip install -e ".[mesh]"           # trimesh (mesh_to_heightmap)
 ```
 
-All registration dependencies are already installed in the project venv.
+- OSM fetching (osmnx, geopandas) is map2stl's dependency, not numpy2stl's.
+- The 3D Maps venv (`~/.venvs/map2stl`) has everything.

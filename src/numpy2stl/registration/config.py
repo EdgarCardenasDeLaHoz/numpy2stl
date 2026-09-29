@@ -4,10 +4,11 @@ Every value here was previously a magic number scattered inline across the
 pipeline.  They are collected so the behaviour can be tuned in one place and so
 the assumptions are documented (see docs/ARCHITECTURE.md for the audit table).
 
-`RegistrationConfig` is a frozen dataclass; pass an instance to
-`register_city_stl(..., config=...)` to override defaults.  Functions deep in
-the pipeline take the individual values as parameters defaulting to the
-module-level constants below, so nothing has to thread the whole object.
+`RegistrationConfig` is a frozen dataclass of these defaults.  `register_city_stl`
+does not take one (the pipeline is not threaded with a config object); functions
+deep in the pipeline take the individual values as parameters defaulting to the
+module-level constants below.  The one live seam is `mask_producer`, installed
+with `align.mask_source.use_config(cfg)`.
 """
 
 from __future__ import annotations
@@ -119,7 +120,7 @@ class RegistrationConfig:
     # Install it with `align.mask_source.use_config(cfg)`; the pipeline is not
     # yet threaded with a config object, so nothing reads this field
     # automatically.  See align/mask_source.py for the seam itself and
-    # docs/registration-learning-plan.md for why segmentation is the axis
+    # map2stl/docs/plans/active/registration-learning-plan.md for why segmentation is the axis
     # worth making swappable.
     mask_producer: Callable | None = None
 

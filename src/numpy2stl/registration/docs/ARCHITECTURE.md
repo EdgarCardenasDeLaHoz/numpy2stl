@@ -1,48 +1,112 @@
 # Registration pipeline — architecture
 
-How a city STL is aligned to OpenStreetMap building data, the module layout, and
-the audit of hardcoded assumptions that affect reuse on other cities/STLs.
+How a city STL is aligned to a reference building-height raster (normally OpenStreetMap),
+the module layout, the key design decisions, and the audit of hardcoded assumptions that
+affect reuse on other cities / STLs.
+
+- Usage (API, parameters, report contents): [docs/registration.md](../../../../docs/registration.md).
+- Library overview: [numpy2stl README](../../../../README.md).
+- This file ships with the package (`pyproject.toml` package-data) and is cited by
+  `config.py`.
+
+## Scope and ownership
+
+- numpy2stl is **geo-free**: the reference side is an input (`reference.py::ReferenceSource`).
+  - *Why:* keeps the library offline-testable; network, caching and projections have one
+    owner (map2stl). `tests/test_geo_free.py` enforces it.
+- map2stl owns the OSM side:
+  - `city2stl.registration.OSMReference` (a `ReferenceSource` over `city2stl.osm_raster`);
+  - `city2stl.registration.register_city_stl(stl, "City, ST", ...)` (city name / bbox);
+  - the CLI: `python -m city2stl.registration.scripts.run_registration`,
+    `benchmark_micropolitan`, `robustness_test`.
+- In-memory reference: `reference.py::StaticReference` (heightmap + `cell_size_m`).
 
 ## Module map
 
-`align.py` and `report_plots.py` were split (2025 refactor) from single 2000-/1000-line
-files into subpackages.  Each subpackage's `__init__.py` is a **façade** that re-exports
-every public name, so `from numpy2stl.registration.align import X` and
-`from numpy2stl.registration.report_plots import render_X` keep working unchanged.
+`align` and `report_plots` are subpackages whose `__init__.py` re-exports every public
+name, so `from numpy2stl.registration.align import X` and
+`from numpy2stl.registration.report_plots import render_X` are the stable imports.
 
 ```
 registration/
   __init__.py        thin façade — re-exports register_city_stl + public API
-  pipeline.py        register_city_stl orchestrator + stage helpers
-                     (_simplify_stage, _run_registration, _run_comparison)
-  config.py          RegistrationConfig + named tuning constants (see audit)
-  compare.py         height comparison (affine fit stl_m = scale*stl + offset)
-  types.py           frozen dataclasses (RegistrationResult, ComparisonResult, …)
-  html_report.py     HTML assembly (sections in pipeline order)
-  reference.py       ReferenceSource protocol (the OSM side is an input; numpy2stl is geo-free)
-                     + StaticReference over in-memory arrays
+  pipeline.py        register_city_stl orchestrator (STL -> heightmap -> reference -> register -> compare -> report)
+  stages/            stage helpers split out of pipeline.py (private API)
+    simplify.py      _simplify_stage (decimate / prism LOD before rasterizing)
+    registration.py  _run_registration (+ ECC rotation-drift guard _ECC_MAX_ROT_DRIFT_DEG)
+    compare.py       _run_comparison
+    _common.py       lock gate (_is_locked_registration, sweep sharpness), landmark check
+  reference.py       ReferenceSource protocol + StaticReference
   center_search.py   find_best_target (scores the source's candidate frames)
+  config.py          named tuning constants + RegistrationConfig (see audit)
+  compare.py         compare(): per-building height comparison, affine fit stl_m = scale*stl + offset
+  types.py           frozen dataclasses (RegistrationResult, ComparisonResult, CityRegistrationReport)
+  html_report.py     write_registration_report (sections in pipeline order)
   align/
+    register.py      register() — thin wrapper over register_global (legacy ECC path removed)
+    global_search.py register_global (gradient rotation + edge-IoU refine + xcorr translation)
+    lines.py         gradient_angle_histogram + rotation_from_angle_histograms (Hough removed)
     transform.py     preprocess, apply_transform, matrix helpers
-    segmentation.py  deprecated alias of numpy2stl.raster.segment / .vectorize (terrain_residual,
-                     building_mask, building_edges, split_touching_buildings, vectorize_buildings)
-    lines.py         gradient_angle_histogram + rotation_from_angle_histograms (gradient-only;
-                     the legacy Hough line detector was removed)
+    ecc.py           refine_transform, discover_projection
     scale.py         estimate_scale (area + Fourier) — report diagnostics only
     metrics.py       tolerant IoU, Dice, SDF, score_alignment
-    global_search.py register_global (gradient rotation + edge-IoU refine + xcorr translation)
-    register.py      register() — thin wrapper over register_global (legacy ECC path removed)
-    polygon_register.py  register_polygons — polygon point-pattern registration (RANSAC + z-score)
-    polygon_icp.py   refine_registration_polygons (boundary ICP, gated Dice>0.95)
-    ecc.py           refine_transform, discover_projection
+    polygon_register.py  register_polygons — footprint point-pattern registration (RANSAC + z-score)
+    polygon_icp.py   refine_registration_polygons (boundary ICP, gated Dice > 0.95)
+    fourier_mellin.py    log-polar rotation+scale prototype (see findings below)
+    mask_source.py   swappable STL mask producer (use_mask_producer / use_config)
+    segmentation.py  deprecated alias of numpy2stl.raster.segment / .vectorize (one release)
   report_plots/
-    _common.py       shared heightmap renderers + render_three_panel (decimation/prism figures)
-    inputs.py        STL/OSM heightmaps, aligned side-by-side
+    _common.py       shared heightmap renderers + render_three_panel
+    inputs.py        STL/reference heightmaps, aligned side-by-side
     masks.py         binarization, mask overlay, matched buildings, vectorized footprints
-    registration.py  transform summary, scale/rotation sweeps, xcorr, angle hist
+    registration.py  transform summary, scale/rotation sweeps, xcorr, angle histogram
     comparison.py    3-panel comparison, difference histogram, missing analysis
     decimation.py / prisms.py   simplification evaluation figures
+  scripts/
+    fourier_mellin_prototype.py  offline Fourier–Mellin validation
 ```
+
+- Segmentation lives in `numpy2stl.raster` (`segment.py`, `vectorize.py`); import it
+  from there, not from `align.segmentation`.
+- Mesh simplification lives in `numpy2stl.processing.building_simplify` (a package:
+  `decimate.py`, `prism.py`, `_io.py`).
+- Caches go to `registration/runs/` (gitignored), reports to `Code/_reports/{region}/`;
+  both overridable (`NUMPY2STL_CACHE`, `NUMPY2STL_REPORTS`, see `_paths.py`).
+
+### Where to look (symbol locator)
+
+- Orchestrator: `pipeline.py::register_city_stl`; stage helpers
+  `stages/simplify.py::_simplify_stage`, `stages/registration.py::_run_registration`,
+  `stages/compare.py::_run_comparison`.
+- Lock gate and landmark check: `stages/_common.py::_is_locked_registration`,
+  `stages/_common.py::_landmark_check`.
+- Tunable defaults: `config.py::RegistrationConfig`, `config.py::REGISTER_RES`.
+- Result types: `types.py::RegistrationResult`, `types.py::ComparisonResult`,
+  `types.py::CityRegistrationReport`.
+- Search: `align/global_search.py::register_global`, `align/register.py::register`.
+- Rotation: `align/lines.py::gradient_angle_histogram`,
+  `align/lines.py::rotation_from_angle_histograms`.
+- Refinement: `align/ecc.py::refine_transform`, `align/polygon_icp.py::refine_registration_polygons`,
+  `align/polygon_register.py::register_polygons`.
+- Scoring: `align/metrics.py::score_alignment`; warping: `align/transform.py::apply_transform`.
+- Comparison: `compare.py::compare`; report: `html_report.py::write_registration_report`.
+- Centre search: `center_search.py::find_best_target`.
+
+### Cautions (read before changing)
+
+- `building_mask(source="osm")` is `~isnan(heightmap)`. Never `nan_to_num` a reference
+  heightmap before segmentation: every cell becomes a building and every IoU reads 0.0.
+- Rasters here are **row 0 = south** (`mesh_to_heightmap(..., row0="south")`); the
+  report plots have not been audited for `origin="lower"`.
+- `align/ecc.py::refine_transform` catches `cv2.error` and only logs a warning, so a
+  failed ECC looks like "no correction".
+- The ECC result is accepted only if edge IoU rises **and** rotation drifts
+  ≤ `_ECC_MAX_ROT_DRIFT_DEG` (5°) (`stages/registration.py`).
+  - *Why:* on periodic grids the affine solve can shear into a wrong quadrant that
+    scores higher (Barcelona went to 45°, Lisbon to −124°); ECC is a fine refine only.
+- `center_search` defaults to `"never"`: the probe's lock gate did not separate correct
+  from wrong centres (0/8 test cities "locked", including 4 known-good), so `"auto"`
+  would always run the multi-minute search for no benefit.
 
 ## Method evaluation & assumptions (stress-tested)
 The raster registration's foundational assumptions were tested empirically:
@@ -72,7 +136,7 @@ The whole thing is a **similarity registration** (uniform scale + rotation + tra
 no shear) of two single-channel rasters — an STL height field and an OSM building-height
 raster — followed by a height comparison.
 
-0. **(Optional) mesh simplification** (`processing/building_simplify.py`, `simplify_mode`):
+0. **(Optional) mesh simplification** (`numpy2stl.processing.building_simplify`, `simplify_mode`):
    - **`"decimate"`** — footprint-preserving quadric edge-collapse with feature-preservation
      flags, binary-searched to the **most aggressive reduction whose symmetric Hausdorff to the
      original stays ≤ a metres deviation budget** (`simplify_tol_m`, converted to mesh units via
@@ -159,8 +223,7 @@ raster — followed by a height comparison.
   landmark, which is false for off-centre tiles; it must never drive scale/rotation.
 - **Known limitation**: rotation auto-detection needs a dominant orthogonal grid.  Irregular
   (Boston — fixed by the 0° bias) and radial (Paris) cities need `--rotation`/`--center`.
-  Hough line detection is now diagnostic-only (rotation uses the gradient); the figures were
-  removed from the report.
+  The Hough line detector was removed (rotation uses the gradient only).
 
 ## Hardcode / assumption audit (reuse on other cities / STLs)
 
@@ -181,9 +244,12 @@ raster — followed by a height comparison.
 | Polygon ICP off | `refine_polygons` | Fine-tunes the transform via matched building polygons (gated Dice>0.95) | `refine_polygons=True`, `--refine-polygons` |
 | Auto-rotation needs a grid | gradient histogram | Irregular/radial cities (Boston/Paris) | `--rotation DEG` |
 | p95 tip height | `height_agg` (compare.py) | Models where roof≠tip differ | `height_agg="median"/"max"/"pNN"` |
-| Metres per degree = 111320 | `M_PER_DEG_LAT` (config.py) | Fine for mid-latitudes | — |
 
-All tuning constants live in `config.py`; pass a `RegistrationConfig` to override.
+- All tuning constants live in `config.py`.
+- `register_city_stl` does not take a `RegistrationConfig`: the pipeline is not threaded
+  with one, so constants are overridden per function argument or by editing `config.py`.
+  The only live seam is `mask_producer` (`align.mask_source.use_config`).
+- Degree/metre conversion (`M_PER_DEG_LAT`) left with the OSM code: map2stl `geo2stl.geo`.
 
 ## Improvement opportunities — standard image-registration techniques
 
@@ -211,7 +277,7 @@ correlation; the 180° spectrum ambiguity broken by overlap correlation; an opti
 `refine_overlap` loop that masks both images to their mutual overlap and re-estimates the
 residual).  Validate with `python -m numpy2stl.registration.scripts.fourier_mellin_prototype`
 (synthetic recovery + random-crop test, no network) or `--stl … --reference osm.npz` (vs the
-production path; the .npz holds `heightmap` + `cell_size_m`).  Unit-tested in `TestFourierMellin` (11 tests).
+production path; the .npz holds `heightmap` + `cell_size_m`).  Unit-tested in `tests/test_registration_fourier_mellin.py`.
 
 - **Concept proven.**  On synthetic city rasters it recovers a known rotation+scale to **<0.1°
   / <0.01 scale**, **identically on a grid and an irregular (random-orientation) layout** — the
@@ -237,10 +303,16 @@ production path; the .npz holds `heightmap` + `cell_size_m`).  Unit-tested in `T
   not more overlap cropping.
 
 ## Tests / verification
-`numpy2stl/tests/test_registration.py` imports through the façades, so it exercises the
-split.  Run `pytest numpy2stl/tests/test_registration.py` (45 tests).  Reference run:
-register `Philadelphia, PA_L.3mf` — expect **scale 0.724, rotation ≈0°, Dice ≈0.999,
-r ≈0.58 (p95), bias ≈0, shear 0**, and the **same scale/rotation at 512 and 1024** (only the
-translation and comparison detail change with resolution).  Boston (`--region "Boston, MA,
-USA"`) should give rotation ≈0° (0° bias) and r ≈0.6; Denver/Paris need `--center` and often
-`--rotation`.
+
+- Unit tests are split by module: `numpy2stl/tests/test_registration_register.py`,
+  `_transform`, `_compare`, `_polygon`, `_fourier_mellin`, `_mask_source`, `_report`
+  (all `test_registration_*.py`). They import through the façades, so they exercise
+  the public import paths.
+  - Run: `pytest numpy2stl/tests -k registration`.
+- Reference run (map2stl CLI, fetches OSM):
+  `python -m city2stl.registration.scripts.run_registration --stl "Philadelphia, PA_L.3mf" --region "Philadelphia, PA, USA"`.
+  - Expect **scale 0.724, rotation ≈0°, Dice ≈0.999, r ≈0.58 (p95), bias ≈0, shear 0**.
+  - Expect the **same scale/rotation at `--resolution` 512 and 1024** (only translation and
+    comparison detail change).
+  - Boston (`--region "Boston, MA, USA"`): rotation ≈0° (0° bias), r ≈0.6.
+  - Denver / Paris need `--center` and often `--rotation`.

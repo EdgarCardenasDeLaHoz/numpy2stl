@@ -1,5 +1,7 @@
 # Reorganization Implementation Checklist
 
+> **Historical (archived 2026-09-28).** A plan from June 2026, since carried out and superseded. File names in *italics* no longer exist (removed wrappers, a dropped `oceans` module, a test layout that was not adopted). Current layout: [numpy2stl README](../../README.md).
+
 **Status**: Ready to implement
 **Estimated Time**: 3.5 hours
 **Prerequisites**: Fresh token budget (50k+ recommended)
@@ -294,14 +296,14 @@ __all__ = [
 copy oceans.py applications\oceans.py
 ```
 
-- [ ] `applications/oceans.py` copied
+- [ ] *applications/oceans.py* copied
 
 ### Step 7.2: Update Imports
 - Change `from .generate import array_to_mesh` → `from ..core.generate import array_to_mesh`
 - Change `from .save import writeSTL` → `from ..io.writers import writeSTL`
 - Check all relative imports
 
-- [ ] `applications/oceans.py` imports updated
+- [ ] *applications/oceans.py* imports updated
 - [ ] `applications/puzzle.py` imports verified (from Phase 5)
 
 ### Step 7.3: Write Applications __init__.py
@@ -438,13 +440,13 @@ Create these files (overwrite existing):
 - `generate.py` → wrapper to `core.generate`
 - `solid.py` → wrapper to `core.solid`
 - `polygon.py` → wrapper to `core.polygon`
-- `save.py` → wrapper to `io.writers`
+- *save.py* → wrapper to `io.writers`
 - `simplify.py` → wrapper to `processing.simplify`
 - `boolean.py` → wrapper to `processing.boolean`
 - `verify.py` → wrapper to `processing.verify`
-- `tools.py` → wrapper to `utils.image`
-- `view.py` → wrapper to `utils.visualization`
-- `oceans.py` → wrapper to `applications.oceans`
+- *tools.py* → wrapper to `utils.image`
+- *view.py* → wrapper to `utils.visualization`
+- *oceans.py* → wrapper to `applications.oceans`
 - `puzzle.py` → wrapper to `applications.puzzle` (note: now has different functions)
 
 ⚠️ **CAREFUL**: These will overwrite existing files. Ensure new structure is working first!
@@ -452,13 +454,13 @@ Create these files (overwrite existing):
 - [ ] Wrapper for `generate.py`
 - [ ] Wrapper for `solid.py`
 - [ ] Wrapper for `polygon.py`
-- [ ] Wrapper for `save.py`
+- [ ] Wrapper for *save.py*
 - [ ] Wrapper for `simplify.py`
 - [ ] Wrapper for `boolean.py`
 - [ ] Wrapper for `verify.py`
-- [ ] Wrapper for `tools.py`
-- [ ] Wrapper for `view.py`
-- [ ] Wrapper for `oceans.py`
+- [ ] Wrapper for *tools.py*
+- [ ] Wrapper for *view.py*
+- [ ] Wrapper for *oceans.py*
 - [ ] Wrapper for `puzzle.py`
 
 ### Step 9.3: Test Deprecation Warnings
@@ -549,9 +551,9 @@ mkdir test_applications
 
 ### Step 11.2: Move/Copy Test Files
 Map existing tests to new structure:
-- `test_generate.py` → `test_core/test_generate.py`
-- `test_solid.py` → `test_core/test_solid.py`
-- `test_polygon.py` → `test_core/test_polygon.py`
+- `test_generate.py` → *test_core/test_generate.py*
+- `test_solid.py` → *test_core/test_solid.py*
+- `test_polygon.py` → *test_core/test_polygon.py*
 - (Create new structure based on existing tests)
 
 - [ ] Core tests organized
