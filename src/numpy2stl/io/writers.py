@@ -75,13 +75,20 @@ _3MF_CONTENT_TYPES = (
 _3MF_CHUNK = 200_000   # rows formatted per write
 
 
-def _rows(fmt: str, arr) -> "Iterator[bytes]":
-    """``fmt % row`` for each row of ``arr``, in encoded chunks."""
+def _rows(fmt: str, arr, offset: int = 0) -> "Iterator[bytes]":
+    """``fmt % row`` for each row of ``arr`` (plus ``offset``), in encoded chunks.
+
+    One ``%`` over a whole chunk (``fmt * n % flat``) is 2-2.5x faster than
+    formatting row by row.
+    """
     import numpy as np
 
     a = np.asarray(arr)
     for i in range(0, len(a), _3MF_CHUNK):
-        yield "".join(map(fmt.__mod__, map(tuple, a[i:i + _3MF_CHUNK].tolist()))).encode()
+        c = a[i:i + _3MF_CHUNK]
+        if offset:
+            c = c + offset
+        yield ((fmt * len(c)) % tuple(c.ravel().tolist())).encode()
 
 
 def write3MF(file_name, models, compresslevel: int = 1):
@@ -124,28 +131,24 @@ def write3MF(file_name, models, compresslevel: int = 1):
 
 
 def writeOBJ(file_name, models):
-    """
-    Writes multiple meshes into a single OBJ file.
-    Each key in the puzzle dictionary becomes a named object.
-    """
-    with open(file_name, "w") as f:
-        f.write("# Exported Puzzle Project\n")
+    """Write ``{name: (vertices, faces)}`` as one OBJ file, one ``o <name>`` object each.
 
-        v_offset = 1  # OBJ indices are 1-based and cumulative
+    ``file_name`` is a path or a binary file object (e.g. ``ZipFile.open(..., "w")``).
+    Vertices to 0.1 um, as in :func:`write3MF`; indices are 1-based and cumulative.
+    """
+    import contextlib
 
+    with contextlib.ExitStack() as stack:
+        out = (file_name if hasattr(file_name, "write")
+               else stack.enter_context(open(file_name, "wb")))
+        out.write(b"# Exported Puzzle Project\n")
+        v_offset = 1
         for key, (vertices, faces) in models.items():
-            f.write(f"\no {key}\n")  # Define a new object
-
-            # Write vertices for this object
-            for v in vertices:
-                f.write(f"v {v[0]:.6f} {v[1]:.6f} {v[2]:.6f}\n")
-
-            # Write faces (shifting indices by the current offset)
-            for face in faces:
-                # OBJ indices: v1 v2 v3
-                f.write(f"f {face[0] + v_offset} {face[1] + v_offset} {face[2] + v_offset}\n")
-
-            # Update offset for the next object
+            out.write(f"\no {key}\n".encode())
+            for chunk in _rows("v %.4f %.4f %.4f\n", vertices):
+                out.write(chunk)
+            for chunk in _rows("f %d %d %d\n", faces, offset=v_offset):
+                out.write(chunk)
             v_offset += len(vertices)
 
     import logging as _logging
