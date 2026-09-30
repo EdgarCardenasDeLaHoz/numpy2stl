@@ -91,9 +91,18 @@ def burn_polygons(
             else np.asarray(values, dtype=np.float64))
     if len(vals) != len(polys):
         raise ValueError(f"{len(vals)} values for {len(polys)} polygons")
-    pairs = [(g, float(v)) for g, v in zip((None if p is None else _as_geometry(p) for p in polys),
-                                           vals, strict=True)
-             if g is not None and not g.is_empty]
+    import shapely
+
+    arr = np.empty(len(polys), dtype=object)
+    arr[:] = polys
+    if len(arr) and shapely.is_geometry(arr).all():
+        # shapely input (the common case): drop empties in one call, not per geometry
+        keep = ~shapely.is_empty(arr)
+        pairs = list(zip(arr[keep], vals[keep].tolist(), strict=True))
+    else:
+        pairs = [(g, float(v)) for g, v in zip((None if p is None else _as_geometry(p)
+                                                 for p in polys), vals, strict=True)
+                 if g is not None and not g.is_empty]
     out = np.full((rows, cols), fill, dtype=dtype)
     if not pairs:
         return out
@@ -105,6 +114,10 @@ def burn_polygons(
     if HAS_RASTERIO:
         from affine import Affine
         aff = Affine(a, b, c, d, e, f)
+        # rasterio reads each shape's __geo_interface__, built coordinate by
+        # coordinate in Python (133 s for 315k river polygons); GeoJSON made in
+        # bulk by GEOS and parsed by json is ~10x faster.
+        pairs = _as_geojson_pairs(pairs)
         kw = dict(out_shape=(rows, cols), transform=aff, fill=0.0,
                   all_touched=all_touched, dtype=np.float64)
         burnt = _rio_rasterize(pairs, merge_alg=MergeAlg.add if mode == "sum"
@@ -118,6 +131,17 @@ def burn_polygons(
         burnt, covered = _burn_shapely(pairs, (rows, cols), (a, b, c, d, e, f), mode)
     out[covered] = burnt[covered]
     return out
+
+
+def _as_geojson_pairs(pairs):
+    """[(geometry, value)] -> [(GeoJSON mapping, value)], converted in one GEOS call."""
+    import json
+
+    import shapely
+    if not pairs:
+        return pairs
+    geojson = shapely.to_geojson(np.array([g for g, _ in pairs], dtype=object))
+    return [(json.loads(s), v) for s, (_, v) in zip(geojson, pairs, strict=True)]
 
 
 def _burn_shapely(pairs, shape, aff, mode):
