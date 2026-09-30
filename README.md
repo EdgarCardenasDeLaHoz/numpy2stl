@@ -310,6 +310,7 @@ pieces = boolean.cut_jigsaw(vertices, faces, cutters)   # {"r0c0": (v, f), ...}
 ```bash
 pip install -e ".[dev]"
 pytest                                   # default: -m "not integration and not slow"
+pytest -n 6                              # parallel (pytest-xdist, in [dev]); the pre-push hook runs this
 pytest -m slow                           # slow tests
 pytest tests/benchmarks --benchmark-only # benchmarks
 ruff check --fix .                       # same rules as map2stl/ruff.toml

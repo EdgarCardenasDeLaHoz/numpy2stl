@@ -106,15 +106,21 @@ class TestMeshToHeightmap:
         with pytest.raises(ValueError, match="projection"):
             mesh_to_heightmap(pyramid_stl, projection="bad")
 
-    def test_allow_large_bypasses_cap(self, pyramid_stl):
-        from numpy2stl.stl2numpy import mesh_to_heightmap
-        result = mesh_to_heightmap(pyramid_stl, resolution=1200, allow_large=True)
-        assert max(result["heightmap"].shape) == 1200
+    # The real cap is 1000; crossing it with the "bin" method samples ~46M points
+    # (66 s). Lower the cap so the same logic is exercised on a small grid.
+    def test_allow_large_bypasses_cap(self, pyramid_stl, monkeypatch):
+        from numpy2stl.stl2numpy import heightmap, mesh_to_heightmap
+        monkeypatch.setattr(heightmap, "_MAX_RESOLUTION", 64)
+        result = mesh_to_heightmap(pyramid_stl, resolution=80, allow_large=True,
+                                   cache=False)
+        assert max(result["heightmap"].shape) == 80
 
-    def test_resolution_capped_without_allow_large(self, pyramid_stl):
-        from numpy2stl.stl2numpy import mesh_to_heightmap
-        result = mesh_to_heightmap(pyramid_stl, resolution=1200, allow_large=False)
-        assert max(result["heightmap"].shape) <= 1000
+    def test_resolution_capped_without_allow_large(self, pyramid_stl, monkeypatch):
+        from numpy2stl.stl2numpy import heightmap, mesh_to_heightmap
+        monkeypatch.setattr(heightmap, "_MAX_RESOLUTION", 64)
+        result = mesh_to_heightmap(pyramid_stl, resolution=80, allow_large=False,
+                                   cache=False)
+        assert max(result["heightmap"].shape) == 64
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +151,10 @@ class TestMeshToHeightmapMethods:
 
         from numpy2stl.stl2numpy import mesh_to_heightmap
         box = trimesh.creation.box(extents=(10.0, 6.0, 4.0))
-        rb = mesh_to_heightmap(box, resolution=(6, 10), cache=False)
+        # Only ~1/4 of the box's area is its top, so at the default 32 samples per
+        # cell a cell with no top sample (max taken from a wall) came up in ~1-2% of
+        # runs; 128 per cell makes that vanishingly rare.
+        rb = mesh_to_heightmap(box, resolution=(6, 10), cache=False, oversampling=128)
         rr = mesh_to_heightmap(box, resolution=(6, 10), cache=False, method="raycast")
         assert rr["heightmap"].shape == rb["heightmap"].shape == (6, 10)
         assert np.isfinite(rr["heightmap"]).all()
@@ -160,7 +169,11 @@ class TestMeshToHeightmapMethods:
         from numpy2stl.stl2numpy import mesh_to_heightmap
         mesh = _pyramid_mesh()
         rr = mesh_to_heightmap(mesh, resolution=20, cache=False, method="raycast")
-        rb = mesh_to_heightmap(mesh, resolution=20, cache=False)
+        # "Never below the centre value" needs a sample in the part of each cell that
+        # is higher than its centre (a quarter of the cells along the ridges). At the
+        # default 32 samples per cell that fails in ~30% of runs (unseeded sampling);
+        # at 128 it did not fail in 200 runs.
+        rb = mesh_to_heightmap(mesh, resolution=20, cache=False, oversampling=128)
         xx, yy = _cell_centres(rr)
         expected = 5.0 - np.maximum(np.abs(xx), np.abs(yy))
         np.testing.assert_allclose(rr["heightmap"], expected, atol=1e-6)

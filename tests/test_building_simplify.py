@@ -49,15 +49,40 @@ def _dice(a, b):
     return 2.0 * (a & b).sum() / max(1, a.sum() + b.sum())
 
 
-def _building_with_clutter():
-    """30 m tower + a 2 m roof bump (< budget) + a 12 m spire (> budget)."""
+def _building_with_clutter(subdivisions=1):
+    """30 m tower + a 2 m roof bump (< budget) + a 12 m spire (> budget).
+
+    One subdivision (~1.4k faces) is enough for the decimator to have work to do;
+    two (~5.8k faces) made each Hausdorff binary search take ~10-20 s.
+    """
     box = trimesh.creation.box(extents=(10, 10, 30))
     box.apply_translation([0, 0, 15])
     bump = trimesh.creation.box(extents=(3, 3, 2))
     bump.apply_translation([0, 0, 31])
     spire = trimesh.creation.box(extents=(1, 1, 12))
     spire.apply_translation([3, 3, 36])
-    return trimesh.util.concatenate([box, bump, spire]).subdivide().subdivide()
+    mesh = trimesh.util.concatenate([box, bump, spire])
+    for _ in range(subdivisions):
+        mesh = mesh.subdivide()
+    return mesh
+
+
+# Fewer Hausdorff samples than the production default (20000): the test meshes
+# are boxes, whose deviation is measured well by a few thousand samples.
+_N_SAMPLES = 2000
+
+
+@pytest.fixture(scope="module")
+def clutter_mesh():
+    return _building_with_clutter()
+
+
+@pytest.fixture(scope="module")
+def decimated(clutter_mesh):
+    """decimate_to_tolerance results per deviation budget, computed once."""
+    from numpy2stl.processing.building_simplify import decimate_to_tolerance
+    return {tol: decimate_to_tolerance(clutter_mesh, deviation_tol=tol, n_samples=_N_SAMPLES)
+            for tol in (0.2, 3.5, 6.0)}
 
 
 # ---------------------------------------------------------------------------
@@ -68,29 +93,26 @@ def _building_with_clutter():
 @needs_pymeshlab
 class TestDecimateToTolerance:
 
-    def test_reduces_faces_within_budget_preserving_footprint(self):
-        from numpy2stl.processing.building_simplify import decimate_to_tolerance
+    def test_reduces_faces_within_budget_preserving_footprint(self, clutter_mesh, decimated):
         from numpy2stl.processing.building_simplify.decimate import _symmetric_hausdorff
-        mesh = _building_with_clutter()
+        mesh = clutter_mesh
         tol = 3.5
-        simp, ratio, h = decimate_to_tolerance(mesh, deviation_tol=tol)
+        simp, ratio, h = decimated[tol]
         assert len(simp.faces) < len(mesh.faces)          # actually decimated
         assert h <= tol + 1e-6                             # within deviation budget
-        assert _symmetric_hausdorff(mesh, simp) <= tol + 1e-6
+        assert _symmetric_hausdorff(mesh, simp, n_samples=_N_SAMPLES) <= tol + 1e-6
         # footprint (XY silhouette) essentially unchanged (common bounds box)
         rb = mesh.bounds
         assert _dice(_footprint(mesh, ref_bounds=rb), _footprint(simp, ref_bounds=rb)) > 0.97
 
-    def test_tiny_budget_keeps_more_faces_than_large_budget(self):
-        from numpy2stl.processing.building_simplify import decimate_to_tolerance
-        mesh = _building_with_clutter()
-        _, r_small, _ = decimate_to_tolerance(mesh, deviation_tol=0.2)
-        _, r_large, _ = decimate_to_tolerance(mesh, deviation_tol=6.0)
+    def test_tiny_budget_keeps_more_faces_than_large_budget(self, decimated):
+        _, r_small, _ = decimated[0.2]
+        _, r_large, _ = decimated[6.0]
         assert r_small >= r_large    # tighter budget → fewer removals (higher keep ratio)
 
-    def test_decimation_sweep_monotonic_and_clean(self):
+    def test_decimation_sweep_monotonic_and_clean(self, clutter_mesh):
         from numpy2stl.processing.building_simplify import decimation_sweep
-        mesh = _building_with_clutter()
+        mesh = clutter_mesh
         diag = float(np.linalg.norm(mesh.extents))
         sweep = decimation_sweep(mesh, m_per_unit=2.0, ratios=(0.3, 0.6, 0.9), n_samples=2000)
         assert len(sweep) >= 2
@@ -252,8 +274,16 @@ class TestPrismDecompose:
 @needs_pymeshlab
 class TestSimplifyBuildingMesh:
 
-    def test_simplify_and_save_roundtrip(self, tmp_path):
+    def test_simplify_and_save_roundtrip(self, tmp_path, monkeypatch):
+        import functools
+
+        from numpy2stl.processing.building_simplify import decimate as bs_decimate
         from numpy2stl.processing.building_simplify import simplify_building_mesh
+        # This test covers load → decimate → stats → save; decimation quality is
+        # TestDecimateToTolerance's job, so use the cheaper Hausdorff sampling.
+        monkeypatch.setattr(bs_decimate, "decimate_to_tolerance",
+                            functools.partial(bs_decimate.decimate_to_tolerance,
+                                              n_samples=_N_SAMPLES))
         stl_in = tmp_path / "in.stl"
         _building_with_clutter().export(str(stl_in))
         out = tmp_path / "simplified.stl"

@@ -3,6 +3,36 @@ import numpy as np
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _isolated_stl_cache(request, tmp_path_factory):
+    """Point mesh_to_heightmap's on-disk cache at a temp dir.
+
+    The default cache (src/numpy2stl/registration/runs/stl_cache) is keyed on the
+    mesh's absolute path, so entries written for pytest tmp files are never reused
+    and used to pile up (~1.6 GB). One dir per session keeps cache hits testable.
+
+    When the suite is collected from ../map2stl (rootdir outside this repo), pytest
+    registers this conftest's fixtures for *every* test, map2stl's included. That is
+    fine here (map2stl tests reach mesh_to_heightmap too), but it is why this patches
+    by hand instead of requesting ``monkeypatch``: an extra autouse ``monkeypatch``
+    set up before map2stl's ``_isolate_export_tasks`` would undo a test's patches
+    only after that fixture's teardown had run with them (a patched time.monotonic).
+    Integration tests keep the real cache, as in map2stl's ``_isolate_disk_cache``.
+    """
+    if request.node.get_closest_marker("integration"):
+        yield
+        return
+    try:
+        from numpy2stl.stl2numpy import heightmap
+    except ImportError:  # optional deps missing: nothing to redirect
+        yield
+        return
+    saved = heightmap._STL_CACHE_DIR
+    heightmap._STL_CACHE_DIR = tmp_path_factory.getbasetemp() / "stl_cache"
+    yield
+    heightmap._STL_CACHE_DIR = saved
+
+
 @pytest.fixture
 def simple_elevation_array():
     """10x10 pyramid for testing."""

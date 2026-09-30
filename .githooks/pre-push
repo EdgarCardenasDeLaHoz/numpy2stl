@@ -1,0 +1,17 @@
+#!/bin/sh
+# Run numpy2stl's own test suite (pyproject.toml [tool.pytest.ini_options]) before
+# every push. Uses map2stl's venv, which has numpy2stl installed editable
+# (../map2stl/scripts/setup-venv.ps1). Enabled by core.hooksPath .githooks, set by
+# scripts/link-gitdir.ps1 and ../map2stl/scripts/setup-venv.ps1.
+set -e
+cd "$(git rev-parse --show-toplevel)"
+
+PYTHON="$HOME/.venvs/map2stl/Scripts/python.exe"
+if [ ! -f "$PYTHON" ]; then
+    echo "pre-push: $PYTHON missing; run ../map2stl/scripts/setup-venv.ps1" >&2
+    exit 1
+fi
+
+echo "Running numpy2stl test suite before push..."
+# -n 6 needs pytest-xdist (the [dev] extra; map2stl's requirements-dev.txt).
+"$PYTHON" -m pytest -q --tb=short -p no:cacheprovider -x -n 6 --durations=10

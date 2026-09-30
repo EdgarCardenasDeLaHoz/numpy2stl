@@ -38,7 +38,7 @@ registration = [
     "scikit-image>=0.19",
 ]
 viz = ["matplotlib>=3.5", "napari[all]>=0.4"]
-dev = ["pytest>=8", "pytest-benchmark>=4", "ruff>=0.4"]
+dev = ["pytest>=8", "pytest-benchmark>=4", "pytest-xdist>=3.8", "ruff>=0.4"]
 all = ["numpy2stl[tools,boolean,geo,mesh,registration]"]
 
 [project.urls]

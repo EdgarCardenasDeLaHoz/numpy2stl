@@ -81,38 +81,37 @@ class TestCityRegistrationReport:
 
 
 class TestWriteRegistrationReport:
+    """All assertions check the same report, so it is written once (~8 s)."""
 
-    def test_creates_index_html(self, tmp_path):
+    @pytest.fixture(scope="class")
+    def written(self, tmp_path_factory):
         from numpy2stl.registration.html_report import write_registration_report
+        out_dir = tmp_path_factory.mktemp("registration_report")
         report = TestCityRegistrationReport()._make_report()
-        out = write_registration_report(tmp_path, report)
+        out = write_registration_report(out_dir, report)
+        return out_dir, out
+
+    def test_creates_index_html(self, written):
+        _, out = written
         assert out.exists()
         assert out.name == "index.html"
 
-    def test_creates_assets_folder(self, tmp_path):
-        from numpy2stl.registration.html_report import write_registration_report
-        report = TestCityRegistrationReport()._make_report()
-        write_registration_report(tmp_path, report)
-        assert (tmp_path / "assets").is_dir()
+    def test_creates_assets_folder(self, written):
+        out_dir, _ = written
+        assert (out_dir / "assets").is_dir()
 
-    def test_creates_comparison_png(self, tmp_path):
-        from numpy2stl.registration.html_report import write_registration_report
-        report = TestCityRegistrationReport()._make_report()
-        write_registration_report(tmp_path, report)
-        assert (tmp_path / "assets" / "comparison.png").exists()
+    def test_creates_comparison_png(self, written):
+        out_dir, _ = written
+        assert (out_dir / "assets" / "comparison.png").exists()
 
-    def test_index_html_contains_region_name(self, tmp_path):
-        from numpy2stl.registration.html_report import write_registration_report
-        report = TestCityRegistrationReport()._make_report()
-        write_registration_report(tmp_path, report)
-        html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    def test_index_html_contains_region_name(self, written):
+        out_dir, _ = written
+        html = (out_dir / "index.html").read_text(encoding="utf-8")
         assert "Test City" in html
 
-    def test_index_html_contains_stats(self, tmp_path):
-        from numpy2stl.registration.html_report import write_registration_report
-        report = TestCityRegistrationReport()._make_report()
-        write_registration_report(tmp_path, report)
-        html = (tmp_path / "index.html").read_text(encoding="utf-8")
+    def test_index_html_contains_stats(self, written):
+        out_dir, _ = written
+        html = (out_dir / "index.html").read_text(encoding="utf-8")
         low = html.lower()
         assert "rmse" in low
         assert "correlation" in low

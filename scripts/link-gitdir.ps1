@@ -26,7 +26,12 @@ $gitdirs = Join-Path $HOME ".gitdirs"
 $target = Join-Path $gitdirs $Name
 $dotgit = Join-Path $root ".git"
 
+# Tracked hooks (.githooks/pre-push runs the tests). core.hooksPath lives in the
+# per-PC database, so set it on every run, including on an already-linked PC.
+function Set-Hooks { git -C $root config core.hooksPath .githooks }
+
 if ((Test-Path $dotgit -PathType Leaf) -and (Test-Path (Join-Path $target "HEAD"))) {
+    Set-Hooks
     Write-Host "already linked: $dotgit -> $target"; exit 0
 }
 if (Test-Path $dotgit -PathType Container) {
@@ -55,5 +60,6 @@ $posix = $target -replace '\\', '/'
 # whatever differs afterwards shows up in `git status` for you to review.
 $branch = (git -C $root symbolic-ref --short refs/remotes/origin/HEAD) -replace '^origin/', ''
 git -C $root reset -q "origin/$branch"
+Set-Hooks
 git -C $root status --short
 Write-Host "linked: $dotgit -> $target (branch $branch; review git status above)"
