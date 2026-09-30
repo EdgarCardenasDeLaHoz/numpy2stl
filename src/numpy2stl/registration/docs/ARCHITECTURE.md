@@ -67,7 +67,7 @@ registration/
 ```
 
 - Segmentation lives in `numpy2stl.raster` (`segment.py`, `vectorize.py`); import it
-  from there, not from `align.segmentation`.
+  from there (the `align.segmentation` alias was removed 2026-09-30).
 - Mesh simplification lives in `numpy2stl.processing.building_simplify` (a package:
   `decimate.py`, `prism.py`, `_io.py`).
 - Caches go to `registration/runs/` (gitignored), reports to `Code/_reports/{region}/`;

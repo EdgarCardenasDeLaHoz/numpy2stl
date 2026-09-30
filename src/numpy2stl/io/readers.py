@@ -56,6 +56,3 @@ def load_mesh(file_path: str):
     mesh = load_trimesh(file_path)
     return np.array(mesh.vertices), np.array(mesh.faces)
 
-
-# One-release alias for the old private name.
-_load_trimesh_mesh = load_trimesh

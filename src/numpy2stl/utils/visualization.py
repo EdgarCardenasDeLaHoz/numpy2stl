@@ -5,59 +5,6 @@ import numpy as np
 ######################### Functions for Plotting in 3D ################################
 
 
-def plot_edges_3d(edges, ax=None):
-
-    if ax is None:
-        fig = plt.figure()
-        ax = plt3.Axes3D(fig)
-
-    for e in edges:
-        color = np.random.rand(3)
-        ax.plot3D([e[0, 0], e[1, 0]], [e[0, 1], e[1, 1]], [e[0, 2], e[1, 2]], color=color)
-        ax.plot3D([e[1, 0]], [e[1, 1]], [e[1, 2]], "o", color=color)
-
-    x = edges[:, :, 0].ravel()
-    y = edges[:, :, 1].ravel()
-    z = edges[:, :, 2].ravel()
-
-    set_limits_3D(ax, x, y, z)
-
-    return ax
-
-
-def plot_perimeters(perimeter, ax=None):
-
-    if ax is None:
-        _, ax = plt.subplots(figsize=(8, 6))
-
-    for p in perimeter:
-        color = np.random.rand(3)
-
-        p = np.concatenate([p, [p[0]]])
-        ax.plot(p[:, 0], p[:, 1], color=color)
-
-    return ax
-
-
-def plot_perimeters_3d(perimeter, ax=None):
-
-    if ax is None:
-        fig = plt.figure()
-        ax = plt3.Axes3D(fig)
-
-    for p in perimeter:
-        color = np.random.rand(3)
-        ax.plot3D(p[:, 0], p[:, 1], p[:, 2], color=color)
-
-    x = perimeter[0][:, 0].ravel()
-    y = perimeter[0][:, 1].ravel()
-    z = perimeter[0][:, 2].ravel()
-
-    set_limits_3D(ax, x, y, z)
-
-    return ax
-
-
 def draw_3D_vertices(vertices, surfaces=None, surf_color=None, ax=None):
 
     if ax is None:

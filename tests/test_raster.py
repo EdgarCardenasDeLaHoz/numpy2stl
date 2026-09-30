@@ -1,4 +1,4 @@
-# Tests for numpy2stl.raster: burn, fill, and the registration.align.segmentation shim.
+# Tests for numpy2stl.raster: burn and fill.
 import ast
 from pathlib import Path
 
@@ -103,17 +103,6 @@ class TestFillNan:
         a = self._arr()
         np.testing.assert_array_equal(_inpaint_stl_nan(a),
                                       fill_nan(a, "nearest", interior_only=True))
-
-
-def test_segmentation_shim_reexports_raster():
-    from numpy2stl import raster
-    from numpy2stl.raster import vectorize
-    from numpy2stl.registration.align import segmentation
-    for name in ("terrain_residual", "hill_relief_mask", "building_mask",
-                 "split_touching_buildings", "building_edges"):
-        assert getattr(segmentation, name) is getattr(raster, name)
-    assert segmentation.vectorize_buildings is raster.vectorize_buildings
-    assert segmentation._regularize_polygon is vectorize._regularize_polygon
 
 
 def test_lower_layers_do_not_import_registration_or_applications():

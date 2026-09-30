@@ -134,7 +134,7 @@ src/numpy2stl/
     soup; booleans (manifold3d) need an indexed closed manifold.
 - **`core.solid`**
   - `Solid((vertices, faces))` or `Solid(raw_triangles)` (auto-indexed); methods
-    `save_stl(filename, ascii=False)`, `validate_object()`, `simplify()`.
+    `save_stl(filename, ascii=False)`, `validate_object()` (logs degenerate faces / open edges, returns bool), `simplify()`.
   - `vertices_to_index(triangles)`: dedupe `(M, 3, 3)` soup to indexed form with the
     `np.unique` void-view trick (the old profile had this at 60–65% of `array_to_mesh` time).
   - `triangles_to_facets`, `get_open_edges` (boundary edges), `get_surfaces`
@@ -199,7 +199,7 @@ src/numpy2stl/
     reference heightmap before segmentation, or every cell becomes a building.
 - `vectorize_buildings(mask, simplify_frac=0.02, regularize=False)`: mask -> polygons.
 - *Why here, not in registration:* they are generic raster primitives also used by
-  map2stl; `registration.align.segmentation` is a deprecated alias kept one release.
+  map2stl.
 
 ## Mesh back to arrays: `numpy2stl.stl2numpy`
 
@@ -290,15 +290,15 @@ pieces = boolean.cut_jigsaw(vertices, faces, cutters)   # {"r0c0": (v, f), ...}
 | `registration.center_search.find_best_city_center` | `find_best_target` over `OSMReference.candidate_targets` |
 | `python -m numpy2stl.registration.scripts.{run_registration,benchmark_micropolitan,robustness_test}` | `python -m city2stl.registration.scripts.…` |
 
-- numpy2stl cannot import map2stl, so the old modules are tombstones, not forwarding
-  shims: importing `numpy2stl.applications.cities` / `.lidar` raises `ImportError`
-  naming the new location; passing a city name to `register_city_stl` raises `TypeError`.
+- numpy2stl cannot import map2stl, so nothing forwards: the old `applications.cities` /
+  `.lidar` modules were deleted (2026-09-30) after one release as ImportError tombstones;
+  passing a city name to `register_city_stl` raises `TypeError`.
 
 ## Utilities
 
 - `utils.image.rescale(im, max_size=600, height=20, base=10, clip=None)`: resize and
   remap an elevation image to print height (extra `tools`); `resize_max`.
-- `utils.visualization`: matplotlib perimeter/edge plots, `render_models_napari(models)`.
+- `utils.visualization`: matplotlib `draw_3D_vertices` / `set_limits_3D`, `render_models_napari(models)`.
 - Logging: standard `logging` under the `numpy2stl` logger
   (`logging.getLogger("numpy2stl").setLevel(logging.INFO)`); nothing prints.
 - Paths (`_paths.py`): caches default to `registration/runs/` in the package tree,

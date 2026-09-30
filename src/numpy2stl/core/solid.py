@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
@@ -11,6 +13,8 @@ from .polygon import (
     simplify_perimeters,
     triangulate_polygon,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "Solid",
@@ -40,8 +44,8 @@ class Solid:
         self.vertices = vertices
         self.faces = faces
 
-    def validate_object(self):
-        validate_object(self)
+    def validate_object(self) -> bool:
+        return validate_object(self)
 
     def simplify(self):
         solid = simplify_object_3D(self)
@@ -319,8 +323,8 @@ def get_min_required_vertices(vertices, perimeter_list, normal_list):
     return req_vert_idx
 
 
-def validate_object(solid):
-    """ """
+def validate_object(solid) -> bool:
+    """Log a warning for degenerate faces and open edges; return False when edges are open."""
     vertices = solid.vertices
     faces = solid.faces
 
@@ -333,18 +337,14 @@ def validate_object(solid):
     triangles = triangles[~invalid]
 
     if np.sum(invalid) > 0:
-        print("invalid faces exist in object!!")
+        logger.warning("%d degenerate (zero-area) faces in object", int(np.sum(invalid)))
 
     open_edges = get_open_edges(faces)
     if len(open_edges) > 0:
-
         is_valid = False
-        print(list(open_edges))
-        print(list(vertices[open_edges]))
-        print("Open edges exist in object!!")
-
-    if not is_valid:
-        print("Solid is not valid")
+        logger.warning("Solid is not valid: %d open edges %s at %s", len(open_edges),
+                       list(open_edges), list(vertices[open_edges]))
+    return is_valid
 
 
 def index_edges(faces):
