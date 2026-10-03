@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import numpy as np
 
-__all__ = ["building_table", "roof_shape"]
+__all__ = ["FEATURE_NAMES", "building_table", "region_features", "roof_shape"]
 
 #: Roof shape from one least-squares plane over the roof cells: flat below this slope (deg).
 FLAT_ROOF_DEG = 5.0
@@ -112,3 +112,65 @@ def building_table(dsm: np.ndarray, dtm: np.ndarray, cell_size_m: float, *,
             "roof": roof_shape((cc + c0) * cell_size_m, (rr + r0) * cell_size_m, z_top),
         })
     return {"buildings": rows, "labels": labels}
+
+
+#: Columns of :func:`region_features`.
+FEATURE_NAMES = ("height_m", "height_std_m", "area_m2", "roof_rms_m", "roof_slope_deg",
+                 "roughness_m", "edge_rise", "compactness", "rectangularity")
+
+
+def region_features(dsm: np.ndarray, dtm: np.ndarray, labels: np.ndarray,
+                    cell_size_m: float) -> np.ndarray:
+    """One feature row per region of *labels* (1..n), columns :data:`FEATURE_NAMES`.
+
+    What tells a building from a tree crown or a bump in the terrain (F-TREES):
+    ``height_std_m`` and ``roughness_m`` (mean absolute Laplacian of the surface inside the
+    region) are low on a roof, high on a canopy; ``roof_rms_m`` / ``roof_slope_deg`` from one
+    plane fit; ``edge_rise`` = the drop from the region's edge cells to the cells just outside,
+    over the region's height (a wall is ~1, a canopy or a slope tapers); ``compactness``
+    (4 pi area / perimeter^2) and ``rectangularity`` (area over the minimum-area rectangle).
+    """
+    import cv2
+    from scipy import ndimage
+
+    dsm = np.asarray(dsm, dtype=np.float64)
+    ndsm = dsm - np.asarray(dtm, dtype=np.float64)
+    labels = np.asarray(labels)
+    n = int(labels.max())
+    out = np.zeros((n, len(FEATURE_NAMES)))
+    if n == 0:
+        return out
+    ids = np.arange(1, n + 1)
+    filled = np.where(np.isfinite(dsm), dsm, np.nanmin(dsm))
+    lap = np.abs(ndimage.laplace(filled))
+    inner = ndimage.binary_erosion(labels > 0) & (ndimage.grey_erosion(labels, size=3) == labels)
+    outside = ndimage.grey_dilation(labels, size=3)
+    ring = (labels == 0) & (outside > 0)            # cells just outside each region
+    edge = (labels > 0) & ~inner
+
+    out[:, 1] = ndimage.standard_deviation(ndsm, labels, ids)
+    out[:, 2] = np.asarray(ndimage.sum(np.ones_like(ndsm), labels, ids)) * cell_size_m ** 2
+    inner_lab = np.where(inner, labels, 0)
+    rough = np.asarray(ndimage.mean(lap, inner_lab, ids))
+    out[:, 5] = np.where(np.isfinite(rough), rough, np.asarray(ndimage.mean(lap, labels, ids)))
+    edge_z = np.asarray(ndimage.mean(dsm, np.where(edge, labels, 0), ids))
+    ring_z = np.asarray(ndimage.mean(dsm, np.where(ring, outside, 0), ids))
+
+    for k, sl in enumerate(ndimage.find_objects(labels), start=1):
+        if sl is None:
+            continue
+        sub = labels[sl] == k
+        rr, cc = np.nonzero(sub)
+        z = dsm[sl][sub]
+        h = float(np.nanpercentile(ndsm[sl][sub], 90))
+        out[k - 1, 0] = h
+        roof = roof_shape(cc * cell_size_m, rr * cell_size_m, z)
+        out[k - 1, 3], out[k - 1, 4] = roof["rms_m"], roof["slope_deg"]
+        out[k - 1, 6] = (edge_z[k - 1] - ring_z[k - 1]) / max(h, 0.5) if np.isfinite(ring_z[k - 1]) else 1.0
+        cnts, _ = cv2.findContours(sub.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+        c = max(cnts, key=cv2.contourArea)
+        per = max(cv2.arcLength(c, True), 1.0)
+        out[k - 1, 7] = 4 * np.pi * sub.sum() / per ** 2
+        (_, _), (w, hh), _ = cv2.minAreaRect(c)
+        out[k - 1, 8] = sub.sum() / max((w + 1) * (hh + 1), 1.0)   # rect through cell centres
+    return out

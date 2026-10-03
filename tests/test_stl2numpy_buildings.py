@@ -47,3 +47,22 @@ def test_roof_shape(pitch, shape):
     assert roof_shape(x.ravel(), y.ravel(), (pitch * x).ravel())["shape"] == shape
     gable = 5 - np.abs(x - 4.5)
     assert roof_shape(x.ravel(), y.ravel(), gable.ravel())["shape"] == "complex"
+
+
+def test_region_features_tell_a_roof_from_a_canopy():
+    """F-TREES: a flat roof is smooth with a sharp edge; a crown is rough and tapers."""
+    from numpy2stl.stl2numpy.buildings import FEATURE_NAMES, region_features
+
+    rng = np.random.default_rng(0)
+    y, x = np.mgrid[0:80, 0:80]
+    dsm = np.zeros((80, 80))
+    dsm[10:30, 10:30] = 12.0
+    d2 = (x - 55) ** 2 + (y - 55) ** 2
+    dsm = np.maximum(dsm, np.clip(10 - 0.12 * d2, 0, None) + rng.normal(0, 0.8, (80, 80)) * (d2 < 80))
+    t = building_table(dsm, np.zeros_like(dsm), CELL)
+    f = dict(zip(FEATURE_NAMES, region_features(dsm, np.zeros_like(dsm), t["labels"], CELL).T, strict=True))
+    roof, crown = (0, 1) if t["buildings"][0]["area_m2"] == 1600 else (1, 0)
+    assert f["roughness_m"][roof] < 0.1 < f["roughness_m"][crown]
+    assert f["height_std_m"][roof] < 0.1 < f["height_std_m"][crown]
+    assert f["edge_rise"][roof] == pytest.approx(1.0) and f["edge_rise"][crown] < 0.6
+    assert f["rectangularity"][roof] == pytest.approx(1.0)
