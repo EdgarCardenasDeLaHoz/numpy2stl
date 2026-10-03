@@ -60,3 +60,11 @@ def test_parts_file_round_trip(tmp_path):
     ("terrain", "terrain"), ("Paris_XL_Solid", "model"), ("green", "other")])
 def test_part_roles(name, role):
     assert part_role(name) == role
+
+
+def test_load_trimesh_reads_3mf_without_lxml(tmp_path):
+    from numpy2stl.io import load_trimesh
+    t, b = _box(0), _box(5)
+    write3MF(str(tmp_path / "m.3mf"), {"a": (t.vertices, t.faces), "b": (b.vertices, b.faces)})
+    m = load_trimesh(tmp_path / "m.3mf")
+    assert len(m.faces) == 24 and m.bounds[1][0] == pytest.approx(5.5)

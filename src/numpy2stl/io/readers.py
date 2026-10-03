@@ -14,7 +14,8 @@ __all__ = ["load_mesh", "load_trimesh", "read3MF"]
 
 
 def load_trimesh(file_path: str):
-    """Load an STL/OBJ/3MF/PLY file as one ``trimesh.Trimesh`` (scenes are concatenated)."""
+    """Load an STL/OBJ/3MF/PLY file as one ``trimesh.Trimesh`` (scenes are concatenated;
+    3MF through :func:`read3MF`, without lxml)."""
     if not HAS_TRIMESH:
         raise ImportError(
             "trimesh is required. Install with: pip install trimesh"
@@ -25,11 +26,13 @@ def load_trimesh(file_path: str):
     # into a function local (which would shadow it below).
     ext = str(file_path).rsplit(".", 1)[-1].lower()
     if ext == "3mf":
-        import importlib
-        try:
-            importlib.import_module("trimesh.exchange.threemf")
-        except ImportError:
-            pass
+        # Our own reader (standard library): trimesh's 3MF loader needs lxml, which the
+        # venv does not have, and a 3MF plate (Philadelphia's) then could not be gridded.
+        objs = read3MF(file_path)
+        if not objs:
+            raise ValueError(f"{file_path!r}: no mesh objects in the 3MF")
+        return trimesh.util.concatenate([trimesh.Trimesh(v, f, process=False)
+                                         for v, f in objs.values()])
     mesh = trimesh.load(file_path, force="mesh")
     if not isinstance(mesh, trimesh.Trimesh):
         raise ValueError(
