@@ -1,7 +1,6 @@
 import logging
 
 import numpy as np
-import pymeshlab as ml
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +143,8 @@ def _intersect_manifold(vertices, faces, cutters):
 
 
 def _intersect_pymeshlab(vertices, faces, cutters):
+    import pymeshlab as ml   # fallback engine; imported only when used
+
     base_ms = ml.MeshSet()
     base_ms.add_mesh(
         ml.Mesh(np.asarray(vertices, dtype=np.float64), np.asarray(faces, dtype=np.int32))
