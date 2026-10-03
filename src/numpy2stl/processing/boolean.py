@@ -143,7 +143,7 @@ def _intersect_manifold(vertices, faces, cutters):
 
 
 def _intersect_pymeshlab(vertices, faces, cutters):
-    import pymeshlab as ml   # fallback engine; imported only when used
+    import pymeshlab as ml  # fallback engine; imported only when used
 
     base_ms = ml.MeshSet()
     base_ms.add_mesh(

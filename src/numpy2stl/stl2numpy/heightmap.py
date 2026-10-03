@@ -31,7 +31,7 @@ _OVERSAMPLING = 32  # sample this many points per output cell (16 causes 0.01% e
 # Cache directory for computed heightmaps (the 3MF/STL load + sampling is slow).
 _STL_CACHE_DIR = CACHE_ROOT / "stl_cache"
 
-_METHODS = ("bin", "raycast")
+_METHODS = ("bin", "raycast", "zbuffer")
 _ROW0 = ("south", "north")
 
 
@@ -89,11 +89,12 @@ def mesh_to_heightmap(
         R×R canvas.  This keeps a world-square footprint square in the image
         (no aspect stretch) — required for registration against an isotropic
         OSM raster.  Ignored when resolution is a (rows, cols) tuple.
-    method : {'bin', 'raycast'}
+    method : {'bin', 'raycast', 'zbuffer'}
         'bin' samples the surface (``oversampling`` points per cell plus the
         vertices) and bins them; 'raycast' casts one vertical ray through each
         cell centre, so it never leaves an empty cell over the mesh and reads
-        the exact surface there.
+        the exact surface there; 'zbuffer' gives the raycast answer by
+        rasterizing the triangles (vectorized, far faster on large grids).
     cell_size : float or (x_size, y_size), optional
         Cell size in mesh units, instead of ``resolution``: the grid is
         ``round(extent / cell_size)`` cells per axis (the returned ``cell_size``
@@ -200,6 +201,8 @@ def mesh_to_heightmap(
     if method == "raycast":
         heightmap = _raycast_grid(mesh, h_axes, z_axis, extent, z_min, z_max,
                                   n_rows, n_cols, projection)
+    elif method == "zbuffer":
+        heightmap = _zbuffer_grid(mesh, h_axes, z_axis, extent, n_rows, n_cols, projection)
     else:
         heightmap = _bin_grid(mesh, h_axes, z_axis, extent, n_rows, n_cols, projection,
                               oversampling)
@@ -311,6 +314,82 @@ def _raycast_grid(mesh, h_axes, z_axis, extent, z_min, z_max, n_rows, n_cols, pr
         fill = -np.inf if projection == "max" else np.inf
         out = np.full(n_rays, fill, dtype=np.float64)
         (np.maximum if projection == "max" else np.minimum).at(out, index_ray, z)
+        out[np.isinf(out)] = np.nan
+    return out.reshape(n_rows, n_cols)
+
+
+def _zbuffer_grid(mesh, h_axes, z_axis, extent, n_rows, n_cols, projection,
+                  chunk: int = 8_000_000):
+    """Every triangle rasterized at the cell centres it covers → (n_rows, n_cols), row 0 = min y.
+
+    The same answer as :func:`_raycast_grid` (the surface at each cell centre; max, min or
+    the mean of every surface there) without a ray engine: each triangle expands to the
+    centres in its bounding box, a barycentric test keeps those inside, and the hits are
+    reduced per cell. Vertical faces cover no centre. Candidates go in chunks of *chunk*.
+    Granada City Model at 2 m (1 M cells, 1.7 M faces): seconds instead of minutes.
+    """
+    x_min, x_max, y_min, y_max = extent
+    cx, cy = (x_max - x_min) / n_cols, (y_max - y_min) / n_rows
+    tri = np.asarray(mesh.vertices, dtype=np.float64)[np.asarray(mesh.faces)]
+    # Cell coordinates: centre of cell (c, r) at (c, r).
+    tx = (tri[:, :, h_axes[0]] - x_min) / cx - 0.5
+    ty = (tri[:, :, h_axes[1]] - y_min) / cy - 0.5
+    tz = tri[:, :, z_axis]
+    det = (ty[:, 1] - ty[:, 2]) * (tx[:, 0] - tx[:, 2]) + (tx[:, 2] - tx[:, 1]) * (ty[:, 0] - ty[:, 2])
+    c0 = np.maximum(np.ceil(tx.min(axis=1)), 0).astype(np.int64)
+    c1 = np.minimum(np.floor(tx.max(axis=1)), n_cols - 1).astype(np.int64)
+    r0 = np.maximum(np.ceil(ty.min(axis=1)), 0).astype(np.int64)
+    r1 = np.minimum(np.floor(ty.max(axis=1)), n_rows - 1).astype(np.int64)
+    width, height = c1 - c0 + 1, r1 - r0 + 1
+    keep = (np.abs(det) > 1e-12) & (width > 0) & (height > 0)
+    ids = np.flatnonzero(keep)
+    counts = (width * height)[ids]
+
+    n_cells = n_rows * n_cols
+    if projection == "mean":
+        mean_cells, mean_z = [], []
+    else:
+        out = np.full(n_cells, -np.inf if projection == "max" else np.inf)
+        reduce_at = np.maximum.at if projection == "max" else np.minimum.at
+    ends = np.cumsum(counts)
+    start = 0
+    while start < len(ids):
+        stop = int(np.searchsorted(ends, (ends[start - 1] if start else 0) + chunk, side="right"))
+        stop = max(stop, start + 1)
+        sel = ids[start:stop]
+        cnt = counts[start:stop]
+        t = np.repeat(np.arange(len(sel)), cnt)
+        k = np.arange(int(cnt.sum())) - np.repeat(np.cumsum(cnt) - cnt, cnt)
+        f = sel[t]
+        col = c0[f] + k % width[f]
+        row = r0[f] + k // width[f]
+        x, y = col.astype(np.float64), row.astype(np.float64)
+        d = det[f]
+        l1 = ((ty[f, 1] - ty[f, 2]) * (x - tx[f, 2]) + (tx[f, 2] - tx[f, 1]) * (y - ty[f, 2])) / d
+        l2 = ((ty[f, 2] - ty[f, 0]) * (x - tx[f, 2]) + (tx[f, 0] - tx[f, 2]) * (y - ty[f, 2])) / d
+        l3 = 1.0 - l1 - l2
+        eps = -1e-9
+        inside = (l1 >= eps) & (l2 >= eps) & (l3 >= eps)
+        z = l1 * tz[f, 0] + l2 * tz[f, 1] + l3 * tz[f, 2]
+        cell = (row * n_cols + col)[inside]
+        if projection == "mean":
+            mean_cells.append(cell)
+            mean_z.append(z[inside])
+        else:
+            reduce_at(out, cell, z[inside])
+        start = stop
+    if projection == "mean":
+        # A centre on an edge two triangles share is inside both: one surface, counted once
+        # (as the ray tracer counts it).
+        cells = np.concatenate(mean_cells) if mean_cells else np.zeros(0, np.int64)
+        zs = np.concatenate(mean_z) if mean_z else np.zeros(0)
+        pairs = np.unique(np.column_stack([cells, np.round(zs, 9)]), axis=0)
+        cells, zs = pairs[:, 0].astype(np.int64), pairs[:, 1]
+        sums = np.bincount(cells, weights=zs, minlength=n_cells)
+        hits = np.bincount(cells, minlength=n_cells)
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out = np.where(hits > 0, sums / np.maximum(hits, 1), np.nan)
+    else:
         out[np.isinf(out)] = np.nan
     return out.reshape(n_rows, n_cols)
 

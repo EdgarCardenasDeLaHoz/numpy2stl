@@ -43,8 +43,18 @@ def test_progressive_filter_misses_wide_roofs_on_a_slope():
     60 m, where the slope allowance already exceeds its 10 m height."""
     dsm, truth, built = _hillside(slope=0.25)
     ground = ground_mask_pmf(dsm, CELL, slope=0.3)
-    assert (ground & built).sum() > 0.3 * built.sum()
+    assert (ground & built).sum() > 0.3 * built.sum()     # at slope 0.3; 0.15 is the default
     assert not (ground & built)[20:30, 20:30].any()       # the 20 m building is caught
+
+
+@pytest.mark.parametrize("slope", [0.0, 0.3])
+def test_default_ground_is_where_both_masks_agree(slope):
+    dsm, truth, built = _hillside(slope=slope)
+    err = np.abs(estimate_dtm(dsm, CELL) - truth)
+    # Slopes steeper than the progressive filter's 0.15 lose a few bare cells to
+    # interpolation; the error stays small.
+    assert err[~built].mean() < 0.05 and err[~built].max() < 2.0
+    assert np.median(err[built]) < 0.5
 
 
 def test_off_model_cells_stay_nan_and_flat_ground_is_kept():

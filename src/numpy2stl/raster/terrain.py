@@ -7,7 +7,7 @@ Layer: ``raster`` (numpy / scipy / cv2 only; no geo). F-STL2NUMPY step "DTM"
                        steps; a region that mostly steps down to its neighbours is raised
                        (a roof), the rest is ground
 - ``ground_mask_pmf``  the same from a progressive morphological filter
-- ``estimate_dtm``     the ground everywhere (default ground: ``ground_mask_steps``): ground
+- ``estimate_dtm``     the ground everywhere (default ground: where both masks agree): ground
                        cells as they are, interpolated under
                        buildings from a block-median grid of the ground cells
 - ``estimate_terrain`` / ``terrain_to_grid`` / ``grid_to_terrain``  that coarse grid
@@ -118,8 +118,31 @@ def estimate_terrain(rendered: np.ndarray, built: np.ndarray, *, cell_size_m: fl
         coarse = np.nanmedian(blocks.reshape(rows, cols, -1), axis=2)
 
     # Blocks that saw no bare ground at all -- a courtyard-less block entirely under roof, or a
-    # block off the plate -- take the nearest block that did.
+    # block off the plate -- are interpolated linearly from the blocks around them (a block
+    # under a wide roof on a slope took its nearest neighbour's level, off by slope x
+    # distance), and only those outside every other block's hull take the nearest one.
     empty = ~np.isfinite(coarse)
+    plate_blocks = np.zeros((rows * step_px, cols * step_px), dtype=bool)
+    plate_blocks[:plate.shape[0], :plate.shape[1]] = plate
+    on_plate = plate_blocks.reshape(rows, step_px, cols, step_px).any(axis=(1, 3))
+    gaps = empty & on_plate
+    if gaps.any() and (~empty).sum() >= 3:
+        from scipy import ndimage
+        from scipy.interpolate import griddata
+        # Linear from the known blocks around each gap: exact on a plane, which matters on
+        # hillsides. Only the rim blocks are triangulated - all of them took 50 s on
+        # Cartagena (mostly sea); OpenCV inpainting was 2-5x faster but 10 % less accurate
+        # under buildings and bent planes (2026-10-03).
+        rim = ndimage.binary_dilation(gaps, iterations=2) & ~empty
+        if rim.sum() >= 3:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                try:
+                    coarse[gaps] = griddata(np.argwhere(rim), coarse[rim], np.argwhere(gaps),
+                                            method="linear")
+                except Exception:  # noqa: BLE001 - collinear rim: nearest below
+                    pass
+        empty = ~np.isfinite(coarse)
     if empty.any() and not empty.all():
         _, labels = cv2.distanceTransformWithLabels(empty.astype(np.uint8), cv2.DIST_L2, 3,
                                                     labelType=cv2.DIST_LABEL_PIXEL)
@@ -145,14 +168,50 @@ def grid_to_terrain(dem: dict, shape=None) -> np.ndarray:
     return cv2.resize(coarse, (out_cols, out_rows), interpolation=cv2.INTER_LINEAR)
 
 
+#: A wall: a step between neighbouring cells that departs from the steps beside it by more
+#: than this (m). A steep slope or roof rises steadily and is not a wall at any pitch.
+WALL_JUMP_M = 1.5
+
+
+def neighbour_edges(z: np.ndarray, jump_m: float = WALL_JUMP_M):
+    """4-neighbour pairs of a heightmap and whether a wall separates them.
+
+    Returns ``(a, b, dz, wall)`` over the pairs where both cells are finite: flat indices
+    ``a``, ``b``, ``dz = z[a] - z[b]``, and ``wall``: the step is over *jump_m* itself and
+    differs by over *jump_m* from both steps beside it on the same line (a missing one
+    counts as different). A steady gradient - a 45 degree roof, a steep hillside - is never
+    a wall, nor is a roof ridge (its own step is small); a plain ``|dz| > jump`` cut steep
+    roofs into strips.
+    """
+    z = np.asarray(z, dtype=np.float64)
+    h, w = z.shape
+    idx = np.arange(h * w).reshape(h, w)
+    out = []
+    for axis in (1, 0):
+        d = np.diff(z, axis=axis)                     # step from cell i to i+1
+        pad = [(0, 0), (0, 0)]
+        pad[axis] = (1, 1)
+        dp = np.pad(d, pad, constant_values=np.nan)
+        before = [slice(None), slice(None)]
+        after = [slice(None), slice(None)]
+        before[axis] = slice(0, -2)
+        after[axis] = slice(2, None)
+        with np.errstate(invalid="ignore"):
+            unlike_before = ~(np.abs(d - dp[tuple(before)]) <= jump_m)
+            unlike_after = ~(np.abs(d - dp[tuple(after)]) <= jump_m)
+            wall = (np.abs(d) > jump_m) & unlike_before & unlike_after
+        a = idx[:, :-1] if axis == 1 else idx[:-1, :]
+        b = idx[:, 1:] if axis == 1 else idx[1:, :]
+        ok = np.isfinite(d)
+        out.append((a[ok], b[ok], -d[ok], wall[ok]))
+    return tuple(np.concatenate([o[i] for o in out]) for i in range(4))
+
 def ground_mask_steps(dsm: np.ndarray, cell_size_m: float, *, jump_m: float | None = None,
-                      max_slope: float = 0.7, down_frac: float = 0.3,
-                      max_roof_m2: float = 40_000.0) -> np.ndarray:
+                      down_frac: float = 0.3, max_roof_m2: float = 40_000.0) -> np.ndarray:
     """Bare-ground cells of a surface heightmap (metres, NaN off the model), by walls.
 
-    Neighbouring cells (4-connected) belong to one smooth region unless their heights
-    differ by more than *jump_m* (default ``max(1.0, max_slope * cell_size_m)``: steeper
-    than *max_slope* is a wall, not terrain). A region is raised - a roof - when at least
+    Neighbouring cells (4-connected) belong to one smooth region unless a wall separates
+    them (:func:`neighbour_edges`, *jump_m* default :data:`WALL_JUMP_M`). A region is raised - a roof - when at least
     *down_frac* of the wall steps on its boundary go down out of it and it covers at most
     *max_roof_m2* (a larger raised region is a terrace or plateau of the terrain). All other
     regions are ground: the street network, courtyards, terraces.
@@ -168,19 +227,8 @@ def ground_mask_steps(dsm: np.ndarray, cell_size_m: float, *, jump_m: float | No
     z = np.asarray(dsm, dtype=np.float64)
     valid = np.isfinite(z)
     h, w = z.shape
-    jump = jump_m if jump_m is not None else max(1.0, max_slope * cell_size_m)
-    idx = np.arange(h * w).reshape(h, w)
-    # Edges between 4-neighbours that are both on the model.
-    pairs = []
-    for a, b in ((idx[:, :-1], idx[:, 1:]), (idx[:-1, :], idx[1:, :])):
-        a, b = a.ravel(), b.ravel()
-        za, zb = z.ravel()[a], z.ravel()[b]
-        ok = np.isfinite(za) & np.isfinite(zb)
-        pairs.append((a[ok], b[ok], za[ok] - zb[ok]))
-    ea = np.concatenate([p[0] for p in pairs])
-    eb = np.concatenate([p[1] for p in pairs])
-    dz = np.concatenate([p[2] for p in pairs])
-    smooth = np.abs(dz) <= jump
+    ea, eb, dz, wall = neighbour_edges(z, WALL_JUMP_M if jump_m is None else jump_m)
+    smooth = ~wall
     n = h * w
     graph = coo_matrix((np.ones(int(smooth.sum()), np.int8), (ea[smooth], eb[smooth])),
                        shape=(n, n))
@@ -199,7 +247,7 @@ def ground_mask_steps(dsm: np.ndarray, cell_size_m: float, *, jump_m: float | No
 
 
 def ground_mask_pmf(dsm: np.ndarray, cell_size_m: float, *, max_window_m: float = 120.0,
-                    slope: float = 0.3, dh0_m: float = 0.5, dh_max_m: float = 40.0) -> np.ndarray:
+                    slope: float = 0.15, dh0_m: float = 0.5, dh_max_m: float = 40.0) -> np.ndarray:
     """Bare-ground cells of a surface heightmap (metres, NaN off the model).
 
     Openings with square windows of 3, 5, 9, 17, ... cells up to *max_window_m*; at step k a
@@ -231,10 +279,11 @@ def ground_mask_pmf(dsm: np.ndarray, cell_size_m: float, *, max_window_m: float 
 
 
 def estimate_dtm(dsm: np.ndarray, cell_size_m: float, *, ground: np.ndarray | None = None,
-                 step_m: float | None = None, **steps) -> np.ndarray:
+                 step_m: float | None = None) -> np.ndarray:
     """The ground under a surface heightmap (metres; NaN where the DSM is NaN).
 
-    Ground cells (*ground*, default :func:`ground_mask_steps` with *steps*) keep their own height;
+    Ground cells (*ground*; default: the cells both :func:`ground_mask_pmf` and
+    :func:`ground_mask_steps` call ground) keep their own height;
     every other cell is read off a block-median grid of the ground cells
     (:func:`estimate_terrain`, *step_m* default four cells but at least 5 m), expanded
     bilinearly. The result never stands above the surface.
@@ -242,7 +291,10 @@ def estimate_dtm(dsm: np.ndarray, cell_size_m: float, *, ground: np.ndarray | No
     dsm = np.asarray(dsm, dtype=np.float64)
     valid = np.isfinite(dsm)
     if ground is None:
-        ground = ground_mask_steps(dsm, cell_size_m, **steps)
+        # Both must agree (F-STL2NUMPY, 2026-10-03, our City Models at 2 m, error under
+        # buildings): Cartagena 0.28 m, Granada 0.50 m, Philadelphia 0.79 m - best of the
+        # three ways on every region (the single wide opening: 5.0, 7.3, 6.4 m).
+        ground = ground_mask_pmf(dsm, cell_size_m) & ground_mask_steps(dsm, cell_size_m)
     step = step_m if step_m is not None else max(4 * cell_size_m, 5.0)
     grid = estimate_terrain(dsm, ~np.asarray(ground, dtype=bool), cell_size_m=cell_size_m,
                             step_m=step)

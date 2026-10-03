@@ -146,6 +146,20 @@ def _cell_centres(r):
 
 class TestMeshToHeightmapMethods:
 
+    @pytest.mark.parametrize("projection", ["max", "min", "mean"])
+    def test_zbuffer_equals_raycast(self, projection):
+        """F-STL2NUMPY (2026-10-03): the z-buffer gives the raycast surface, faster."""
+        import trimesh
+
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        m = trimesh.util.concatenate([trimesh.creation.icosphere(subdivisions=3, radius=4),
+                                      trimesh.creation.box(extents=(12, 12, 1)), _pyramid_mesh()])
+        kw = dict(resolution=(37, 41), cache=False, projection=projection, row0="north")
+        a = mesh_to_heightmap(m, method="raycast", **kw)["heightmap"]
+        b = mesh_to_heightmap(m, method="zbuffer", **kw)["heightmap"]
+        assert (np.isfinite(a) == np.isfinite(b)).all()
+        assert np.allclose(a[np.isfinite(a)], b[np.isfinite(b)], atol=1e-9)
+
     def test_box_bin_and_raycast_agree(self):
         import trimesh
 
