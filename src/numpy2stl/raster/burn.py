@@ -134,14 +134,21 @@ def burn_polygons(
 
 
 def _as_geojson_pairs(pairs):
-    """[(geometry, value)] -> [(GeoJSON mapping, value)], converted in one GEOS call."""
-    import json
+    """[(geometry, value)] -> [(GeoJSON mapping, value)], converted in one GEOS call.
+
+    Parsed with orjson when it is installed: the stdlib json took 40 s of a 56 s
+    burn of Colombia's 126k river polygons.
+    """
+    try:
+        from orjson import loads
+    except ImportError:
+        from json import loads
 
     import shapely
     if not pairs:
         return pairs
     geojson = shapely.to_geojson(np.array([g for g, _ in pairs], dtype=object))
-    return [(json.loads(s), v) for s, (_, v) in zip(geojson, pairs, strict=True)]
+    return [(loads(s), v) for s, (_, v) in zip(geojson, pairs, strict=True)]
 
 
 def _burn_shapely(pairs, shape, aff, mode):
