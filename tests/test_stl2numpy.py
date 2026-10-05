@@ -101,6 +101,23 @@ class TestMeshToHeightmap:
         h = result["heightmap"]
         assert max(h.shape) <= 1000
 
+    def test_auto_resolution_follows_the_mesh_aspect(self):
+        """resolution=None sizes the grid as (rows, cols) = (y cells, x cells): a mesh
+        long in x gets more columns than rows and near-square cells. _auto_resolution
+        used to return (nx, ny), which the caller read as (rows, cols)."""
+        import trimesh
+
+        from numpy2stl.stl2numpy import mesh_to_heightmap
+        from numpy2stl.stl2numpy.heightmap import _auto_resolution
+        box = trimesh.creation.box(extents=(100.0, 20.0, 5.0))
+        rows, cols = _auto_resolution(box, [0, 1])
+        assert cols > rows
+        assert cols / rows == pytest.approx(100.0 / 20.0, rel=0.15)
+        h = mesh_to_heightmap(box, cache=False)["heightmap"]
+        assert h.shape == (rows, cols)
+        cell_x, cell_y = 100.0 / h.shape[1], 20.0 / h.shape[0]
+        assert cell_x == pytest.approx(cell_y, rel=0.2)          # square-ish cells
+
     def test_invalid_projection_raises(self, pyramid_stl):
         from numpy2stl.stl2numpy import mesh_to_heightmap
         with pytest.raises(ValueError, match="projection"):

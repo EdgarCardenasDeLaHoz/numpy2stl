@@ -418,7 +418,11 @@ def _resolve_resolution(
 
 
 def _auto_resolution(mesh, h_axes: list[int]) -> tuple[int, int]:
-    """Estimate grid resolution from mesh face density, capped at MAX_RESOLUTION."""
+    """Estimate grid resolution ``(rows, cols)`` from mesh face density, capped at
+    MAX_RESOLUTION. Rows run along ``h_axes[1]`` (y), cols along ``h_axes[0]`` (x), as
+    ``mesh_to_heightmap`` unpacks it; this returned ``(nx, ny)``, which stretched every
+    auto-sized grid that was not square (a 100 x 20 box gave 32 x 6 cells of
+    16.7 x 0.625 units instead of about 6 x 32)."""
     bounds = mesh.bounds
     x_size = bounds[1, h_axes[0]] - bounds[0, h_axes[0]]
     y_size = bounds[1, h_axes[1]] - bounds[0, h_axes[1]]
@@ -439,4 +443,4 @@ def _auto_resolution(mesh, h_axes: list[int]) -> tuple[int, int]:
         ny = min(base, _MAX_RESOLUTION)
         nx = min(int(base * aspect), _MAX_RESOLUTION)
 
-    return (max(nx, 1), max(ny, 1))
+    return (max(ny, 1), max(nx, 1))
